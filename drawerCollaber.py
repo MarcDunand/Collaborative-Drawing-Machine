@@ -594,6 +594,12 @@ def drawLandscape():
 
 
 #Program setup
+with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
+    cameraMatrix = data['cameraMatrix']
+    distCoeffs = data['distCoeffs']
+
+print(cameraMatrix)
+print(distCoeffs)
 
 print("Awake!")
 
@@ -628,9 +634,9 @@ xc = 2115
 yc = 311
 isDrawing = False
 
-with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
-    cameraMatrix = data['cameraMatrix']
-    distCoeffs = data['distCoeffs']
+# with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
+#     cameraMatrix = data['cameraMatrix']
+#     distCoeffs = data['distCoeffs']
 
 # distCoeffs[0][0] -= 0.01
 # distCoeffs[0][1] -= 0.01
