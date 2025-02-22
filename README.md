@@ -1,8 +1,8 @@
 # Collaborative Drawing Machine
 
-**Adds embellishments using a pen plotter to a drawing made by a human**
-*Supported by the [Franke-Ratchye Further Fund for Innovative Artwork](https://studioforcreativeinquiry.org)*
-*On display at the [Tomayko Foundation](https://tomayko.foundation), Pittsburgh, PA in May 2025*
+**Adds embellishments using a pen plotter to a drawing made by a human**  
+*Supported by the Franke-Ratchye Further Fund for Innovative Artwork*  
+*On display at the Tomayko Foundation, Pittsburgh, PA in May 2025*
 
 ---
 
