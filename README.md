@@ -1,6 +1,6 @@
 # Collaborative Drawing Machine
- Adds embellishments using a pen plotter to a drawing made by a human
- Supported by the Franke-Ratchye Further Fund for Innovative Artwork
+ Adds embellishments using a pen plotter to a drawing made by a human\n
+ Supported by the Franke-Ratchye Further Fund for Innovative Artwork\n
  On display at the Tomayko Foundation in May 2025
 
 # Artist Statement
