@@ -14,4 +14,5 @@ In *Collaborative Drawing Machine*, these roles are reversed. A person takes the
 ---
 
 ## Find Out More  
-[Website](https://marcdunand.com/portfolio/#collaborative)
+[Website](https://marcdunand.com/portfolio/#collaborative)  
+[YouTube](https://youtu.be/KE64Mhv-7Kc)
