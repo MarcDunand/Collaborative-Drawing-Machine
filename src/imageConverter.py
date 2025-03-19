@@ -6,10 +6,6 @@ from dataclasses import dataclass
 import random as rand
 
 
-
-groundThresh = 80  #How dark to be considered ground, lower values = less ground
-surfaceSteepness = 20  #How steep a surface can be before it's split into multiple surfaces
-
 @dataclass
 class Island:
     coord : tuple[int, int]
@@ -17,14 +13,6 @@ class Island:
     points : np.array
     surfaces : list
     roofs : list
-
-
-
-# Define the path to the image
-input_folder = "sampleImages"
-output_folder = "sampleImages_output"
-input_filename = "squiggles.jpg"
-os.makedirs(output_folder, exist_ok=True)
 
 
 
@@ -144,79 +132,88 @@ def find_area_height(image, surface):
     return roof
 
 
+def main(frame, thresh, imageProvided=True):
+    #defines where the island visualizer image will be stored
+    output_folder = "sampleImages_output"
+    os.makedirs(output_folder, exist_ok=True)
 
+    if imageProvided:
+        binary_array = (frame < thresh).astype(np.uint8)
+    else:
+        # Define the path to the image
+        input_folder = "sampleImages"
+        input_filename = "squiggles.jpg"
 
-# Convert image to binary array
-binary_array = image_to_binary_array(os.path.join(input_folder, input_filename), groundThresh)
-binary_array_H, binary_array_W = binary_array.shape
-
-
-# Fill in any pixel that is surrounded by 3 or more filled pixels
-filled_holes_img = fill_enclosed_pixels(binary_array)
-
-# Use a morphological dialation/erosion system to close holes
-morpho_img = fill_holes_morph(filled_holes_img)
-
-
-#identify the groups of black pixels, "islands"
-num_labels, labeled_img, stats, centroids = cv2.connectedComponentsWithStats(morpho_img, connectivity=4)
-
-islandList = []
-for label in range(1, num_labels):  # Start from 1 to skip background
-    pixel_coords = np.column_stack(np.where(labeled_img == label))
-    islandList.append(Island(pixel_coords[0], stats[label, cv2.CC_STAT_AREA], pixel_coords, [], []))
-
-islandImg = np.zeros((binary_array_H, binary_array_W, 3), dtype=np.uint8)
-
-#remove islands that are too small
-islandList = [island for island in islandList if island.size >= 200]
-
-
-#find surfaces on islands
-for island in islandList:
-    island.surfaces = find_surfaces(island)
-    for surface in island.surfaces:
-        island.roofs.append(find_area_height(morpho_img, surface))
-
-    if len(island.surfaces) != len(island.roofs):
-        print("ERROR: unequal number of surfaces and roofs")
-        
+        # Convert image to binary array
+        binary_array = image_to_binary_array(os.path.join(input_folder, input_filename), thresh)
     
-
-#TODO remove surfaces that are too small and start getting info on the available height for each surface
-
-
-#create visualization of processed image
-for island in islandList:
-    islandImg[island.points[:, 0], island.points[:, 1]] = randColor(20, 255)
-    for surface in island.surfaces:
-        islandImg[surface[:, 0], surface[:, 1]] = randColor(20, 255)
-    for roof in island.roofs:
-        islandImg[roof[:, 0], roof[:, 1]] = randColor(20, 255)
-
-    for i in range(len(island.surfaces)):
-        surface, roof = island.surfaces[i], island.roofs[i]
-        
-        y_indices = np.arange(islandImg.shape[0])[:, None]  # Column vector for row indices
-        x_indices = surface[:, 1]  # Extract x-coordinates
-
-        # Generate row indices where y is between roof and floor
-        valid_rows = (y_indices > roof[:, 0]) & (y_indices < surface[:, 0])
-
-        # Extract row indices and corresponding x indices
-        row_indices, col_indices = np.where(valid_rows)  # Get valid (y, x) pairs
-
-        # Apply the color to valid pixels
-        islandImg[row_indices, x_indices[col_indices]] = randColor(140, 190)  # Properly mapped
-        
-
-# Display sample image
-display_image(morpho_img, "squigglesMorph.jpg", output_folder)
-
-display_image(filled_holes_img, "squigglesFill.jpg", output_folder)
-
-display_image(binary_array, "squiggles.jpg", output_folder)
-
-display_image(islandImg, "islands.jpg", output_folder, False)
+    
+    binary_array_H, binary_array_W = binary_array.shape
 
 
+    # Fill in any pixel that is surrounded by 3 or more filled pixels
+    filled_holes_img = fill_enclosed_pixels(binary_array)
+
+    # Use a morphological dialation/erosion system to close holes
+    morpho_img = fill_holes_morph(filled_holes_img)
+
+
+    #identify the groups of black pixels, "islands"
+    num_labels, labeled_img, stats, centroids = cv2.connectedComponentsWithStats(morpho_img, connectivity=4)
+
+    islandList = []
+    for label in range(1, num_labels):  # Start from 1 to skip background
+        pixel_coords = np.column_stack(np.where(labeled_img == label))
+        islandList.append(Island(pixel_coords[0], stats[label, cv2.CC_STAT_AREA], pixel_coords, [], []))
+
+    islandImg = np.zeros((binary_array_H, binary_array_W, 3), dtype=np.uint8)
+
+    #remove islands that are too small
+    islandList = [island for island in islandList if island.size >= 200]
+
+
+    #find surfaces on islands
+    for island in islandList:
+        island.surfaces = find_surfaces(island)
+        for surface in island.surfaces:
+            island.roofs.append(find_area_height(morpho_img, surface))
+
+        if len(island.surfaces) != len(island.roofs):
+            print("ERROR: unequal number of surfaces and roofs")
+            
+
+
+    #create visualization of processed image
+    for island in islandList:
+        islandImg[island.points[:, 0], island.points[:, 1]] = randColor(20, 255)
+        for surface in island.surfaces:
+            islandImg[surface[:, 0], surface[:, 1]] = randColor(20, 255)
+        for roof in island.roofs:
+            islandImg[roof[:, 0], roof[:, 1]] = randColor(20, 255)
+
+        for i in range(len(island.surfaces)):
+            surface, roof = island.surfaces[i], island.roofs[i]
+            
+            y_indices = np.arange(islandImg.shape[0])[:, None]  # Column vector for row indices
+            x_indices = surface[:, 1]  # Extract x-coordinates
+
+            # Generate row indices where y is between roof and floor
+            valid_rows = (y_indices > roof[:, 0]) & (y_indices < surface[:, 0])
+
+            # Extract row indices and corresponding x indices
+            row_indices, col_indices = np.where(valid_rows)  # Get valid (y, x) pairs
+
+            # Apply the color to valid pixels
+            islandImg[row_indices, x_indices[col_indices]] = randColor(140, 190)  # Properly mapped
+            
+
+    # Display sample image
+    display_image(binary_array, "squiggles.jpg", output_folder)
+    
+    display_image(morpho_img, "squigglesMorph.jpg", output_folder)
+
+    display_image(islandImg, "islands.jpg", output_folder, False)
+
+
+    return islandList 
+    

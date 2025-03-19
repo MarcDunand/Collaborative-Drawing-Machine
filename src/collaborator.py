@@ -7,6 +7,9 @@ from pyaxidraw import axidraw
 from scipy.interpolate import splprep, splev
 import keyboard
 import argparse
+import imageConverter as imgc
+from imageConverter import Island
+import threading
 
 
 def circle(x, y, r):
@@ -57,239 +60,28 @@ def rect(x, y, w, h):
 
 
 
-#returns the contour that corresponds to the hand drawn line
-
-def getHandDrawnLine(frame, thresh):
-
-    # Convert to grayscale
-    src_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
-    src_gray = cv.blur(src_gray, (3, 3))
-
-    # Perform Canny edge detection
-    canny_output = cv.Canny(src_gray, thresh, thresh * 2)
-
-    # Find contours
-    contours, hierarchy = cv.findContours(canny_output, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-
-    contours_img = np.zeros_like(frame)
-
-    # Drawing the contours on the empty image
-    for i in range(len(contours)):
-        color = (255, 255, 255)
-        cv.drawContours(contours_img, contours, i, color, 0, cv.LINE_8, hierarchy, 0)
-
-    #cv.imshow('ContoursTest', contours_img)
-
-
-    maxSq = []
-    maxWH = -1
-    for cnt in contours:
-        epsilon = 0.05 * cv.arcLength(cnt, True)
-        approx = cv.approxPolyDP(cnt, epsilon, True)
-        if len(approx) == 4:  # Check for quadrilateral
-            # Further checks can be area, aspect ratio
-            (x, y, w, h) = cv.boundingRect(cnt)
-            aspect_ratio = float(w)/h
-            if 1 < aspect_ratio < 1.6:  # Roughly square
-                if w*h > maxWH:
-                    maxWH = w*h
-                    maxSq = cnt
-
-    if maxWH != -1:
-        pgBd = cv.boundingRect(maxSq)
-        possLines = []
-        for cnt in contours:
-            cntBd = cv.boundingRect(cnt)
-            if pgBd[0] < cntBd[0] and pgBd[1] < cntBd[1] and pgBd[0] + pgBd[2] > cntBd[0] + cntBd[2] and pgBd[1] + pgBd[3] > cntBd[1] + cntBd[3]:
-                possLines.append(cnt)
-        if len(possLines) > 0:
-            return max(possLines, key=len)
-        else:
-            return np.array([])
-    else:
-        return np.array([])
- 
-
-#turns the landscape contour into an interpretable set of points
-
-def makeFunction(baseLoop):
-    loopLine = []
-    for elem in baseLoop:
-        loopLine.append((elem[0]).tolist())
-
-
-    xInc = loopLine[0] < loopLine[1]
-
-    line1 = []
-    line2 = []
-
-    #parses the closed countour into the upper and lower edges of the line (line1 and line2)
-    if xInc:
-        idx = 0
-        while loopLine[idx][0] <= loopLine[idx+1][0]:
-            line1.append(loopLine[idx])
-            idx += 1
-        
-        idx += 5
-
-        while idx < len(loopLine) - 1 and loopLine[idx][0] >= loopLine[idx+1][0]:
-            line2.append(loopLine[idx])
-            idx += 1
-
-        idx += 5
-
-        while idx < len(loopLine):
-            line1.append(loopLine[idx])
-            idx += 1
-
-    else:
-        idx = 0
-        while loopLine[idx][0] >= loopLine[idx+1][0]:
-            line1.append(loopLine[idx])
-            idx += 1
-        
-        idx += 5
-
-        while idx < len(loopLine) - 1 and loopLine[idx][0] <= loopLine[idx+1][0]:
-            line2.append(loopLine[idx])
-            idx += 1
-        idx += 5
-
-        while idx < len(loopLine):
-            line1.append(loopLine[idx])
-            idx += 1
-
-
-    if len(line1) < 2 or len(line2) < 2:
-        print("Detected sublines are too short (is most likely detecting wrong contour)")
-        return None
-    
-    line1.sort(key=lambda coord: coord[0])
-    line2.sort(key=lambda coord: coord[0])
-
-
-    line1 = list({x[0]: x for x in line1}.values())
-    line2 = list({x[0]: x for x in line2}.values())
-
-    # Ensure the list is sorted by x coordinate
-
-    interp1 = [line1[0]]
-
-    for i in range(1, len(line1)):
-        current = line1[i]
-        previous = line1[i-1]
-
-        x_diff = current[0] - previous[0]
-
-        if x_diff > 1:
-            for j in range(1, x_diff):
-                # Linear interpolation formula: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-                interpolated_y = previous[1] + (j * (current[1] - previous[1]) / x_diff)
-                # Append the new interpolated coordinate
-                interp1.append([previous[0] + j, interpolated_y])
-
-        interp1.append(current)
-
-
-    interp2 = [line2[0]]
-
-    for i in range(1, len(line2)):
-        current = line2[i]
-        previous = line2[i-1]
-
-        x_diff = current[0] - previous[0]
-
-        if x_diff > 1:
-            for j in range(1, x_diff):
-                # Linear interpolation formula: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-                interpolated_y = previous[1] + (j * (current[1] - previous[1]) / x_diff)
-                # Append the new interpolated coordinate
-                interp2.append([previous[0] + j, interpolated_y])
-
-        interp2.append(current)
-
-    try:
-        startDiff = interp1[0][0] - interp2[0][0]
-        if startDiff < 0:
-            interp1 = interp1[abs(startDiff):]
-        else:
-            interp2 = interp2[abs(startDiff):]
-
-        endDiff = interp1[-1][0] - interp2[-1][0]
-        if endDiff > 0:
-            interp1 = interp1[0:len(interp1) - abs(endDiff)]
-        else:
-            interp2 = interp2[0:len(interp2) - abs(endDiff)]
-
-    except:  #if there's a problem with finding the line just abort
-        return None
-
-
-    avgLine = []
-    for i in range(len(interp1)):
-        avgLine.append([interp1[i][0], (interp1[i][1] + interp2[i][1])/2])
-
-    return avgLine
-
-
-#gets the set of points that the axidraw will consider to be the hand drawn line
-def findLine():
-    if useVid:
-        ret, frame = vid.read()
-        if not ret:
-            print("Failed to grab frame")
-            return None
-
-        scale = frame.shape[:2]
-        newCameraMatrix, roi = cv. getOptimalNewCameraMatrix(cameraMatrix, distCoeffs, scale, 1, scale)
-        dst = cv.undistort(frame, cameraMatrix, distCoeffs, None, newCameraMatrix)
-        x, y, w, h = roi
-        #dst = dst[y:y+h, x:x+w]
-        cv.imwrite('calibresult.png', dst)
-        cv.imwrite('controlimg.png', frame)
-        
-
-        handLine = getHandDrawnLine(dst, thresh)
-        
-    else:
-        handLine = getHandDrawnLine(src, thresh)
-    if handLine.size == 0:
-        print("ERROR: failed to find handrawn line")
-        return None
-
-    if handLine.size < 30:
-        print("ERROR: handrawn line is small (less than 30 pts)")
-    
-    tracedLine = makeFunction(handLine)
-    if tracedLine == None:
-        print("ERROR: failed to makeFunction from detected line")
-        return None
-
-    #traces the handdrawn line (for bugfixing)
-    [startX, startY] = tracedLine[0]
-    axi.moveto(startX*S+xc, startY*S+yc)
-    for elem in tracedLine:
-        [x, y] = elem
-        axi.lineto(x*S+xc, y*S+yc)
-    axi.penup()
-
-    return tracedLine
-
-
-
-
-
-#current execution controls
-
-def on_space(event):
-    drawLandscape()
-
-keyboard.on_press_key("space", on_space)
-
-def on_trackbar(val):
+# Trackbars update live
+def on_thresh(val):
     global thresh
     thresh = val
+
+def on_xMin(val):
+    global cropXmin
+    cropXmin = val
+
+def on_yMin(val):
+    global cropYmin
+    cropYmin = val
+
+def on_cropW(val):
+    global cropW
+    cropW = val
+
+def on_cropH(val):
+    global cropH
+    cropH = val
+
+
 
 def on_xstrackbar(val):
     global xc
@@ -592,75 +384,141 @@ def drawLandscape():
     isDrawing = False
 
 
+# Test to see if new surface detection is working
+def traceSurfaces(islandList):
+    global isRunning
+    
+    for island in islandList:
+        for surface in island.surfaces:
+            [startX, startY] = surface[0]
+            axi.penup()
+            axi.moveto(startX*S+xc, startY*S+yc)
+            axi.pendown()
 
-#Program setup
-with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
-    cameraMatrix = data['cameraMatrix']
-    distCoeffs = data['distCoeffs']
+            for i in range(0, len(surface), 4):
+                if not isRunning:
+                    print("Drawing interrupted!")
+                    axi.moveto(0, 0)
+                    return
+                
+                [x, y] = surface[i]
+                axi.lineto(x*S+xc, y*S+yc)
 
-print(cameraMatrix)
-print(distCoeffs)
+            axi.penup()
 
-print("Awake!")
-
-useVid = True
-
-# Define a video capture object
-if useVid:
-    vid = cv.VideoCapture(0, cv.CAP_DSHOW)
-    vid.set(cv.CAP_PROP_FRAME_WIDTH, 1920)
-    vid.set(cv.CAP_PROP_FRAME_HEIGHT, 1080)
-
-axi = axidraw.AxiDraw()          # Initialize class
-axi.interactive()                # Enter interactive context
-if not axi.connect():            # Open serial port to AxiDraw;
-    print("not connected")
-    quit()
-print("connected!")
-axi.options.units = 2
+    axi.moveto(0, 0)
 
 
-# Check if the webcam is opened correctly
-if useVid and not vid.isOpened():
-    raise IOError("Cannot open webcam")
+# Begins the collaboration, gets island information from the raw image
+def runCollaboration(frame):
+    global isRunning
+    # Preprocess image to optimize it for image processing
+    src_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY) # Convert to grayscale
+    src_gray = cv.blur(src_gray, (3, 3)) # Apply blur to smooth the edges and reduce noise
+
+    # Runs imageConverter to get data about islands and surfaces in the drawn image
+    islandList = imgc.main(src_gray, thresh)
+    print(len(islandList))
+    # Test attempting to trace the location of all island surfaces
+    if useAxi:
+        traceSurfaces(islandList)
+
+    isRunning = False
+
+
+
+# Opens thread for the collaboration
+def beginCollaboration(frame):
+    #Signals that the collaboration is in progress
+    global isRunning
+    print(isRunning)
+    if not isRunning:
+        isRunning = True
+        threading.Thread(target=runCollaboration, args=(frame,), daemon=True).start()
+    
+
+# Closes the thread for the collaboration
+def stopCollaboration():
+    global isRunning
+    isRunning = False
 
 
 
 # Define the initial variables
-thresh = 200  #lower means more land
-prevSq = (0, 0)
-S = 375  
-xc = 2115
-yc = 311
-isDrawing = False
+xDef = 4656  #resolution of the camera
+yDef = 3496
 
-# with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
-#     cameraMatrix = data['cameraMatrix']
-#     distCoeffs = data['distCoeffs']
+thresh = 180  #higher means more land
 
-# distCoeffs[0][0] -= 0.01
-# distCoeffs[0][1] -= 0.01
+#controls the size of the cropped in image
+cropXmin = 1965
+cropYmin = 1476
+cropW = 1007
+cropH = 684
+
+S = 300
+xc = 0
+yc = 0
+isDrawing = False  #True when the Axidraw is running
+isRunning = False  #True when runCollaboration thread is running
+
+useVid = True  # Choose whether to use camera or internal file for capture
+useAxi = False  # For bugfixing while away from axidraw, program only works correctly with val is True
 
 
-print(distCoeffs)
-
-
-# Create windows to display the results
+# Initialize windows to display the results
 cv.namedWindow('Live Video Feed', cv.WINDOW_AUTOSIZE)
 cv.resizeWindow('Live Video Feed', 1920, 1080)
+cv.createTrackbar('Threshold', 'Live Video Feed', thresh, 500, on_thresh)
 cv.createTrackbar('xc', 'Live Video Feed', xc, 4000, on_xstrackbar)
 cv.createTrackbar('yc', 'Live Video Feed', yc, 2000, on_ystrackbar)
 cv.createTrackbar('S', 'Live Video Feed', S, 1000, on_Strackbar)
 
 cv.namedWindow('Contours',  cv.WINDOW_AUTOSIZE)
 cv.resizeWindow('Contours', 1920, 1080)
-cv.createTrackbar('Value', 'Contours', thresh, 500, on_trackbar)
+cv.createTrackbar('MinX', 'Contours', cropXmin, xDef, on_xMin)
+cv.createTrackbar('MinY', 'Contours', cropYmin, yDef, on_yMin)
+cv.createTrackbar('Width', 'Contours', cropW, xDef, on_cropW)
+cv.createTrackbar('Height', 'Contours', cropH, yDef, on_cropH)
 
 
+# CAMERA CALLIBRATION CODE
+# with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
+#     cameraMatrix = data['cameraMatrix']
+#     distCoeffs = data['distCoeffs']
 
+# print(cameraMatrix)
+# print(distCoeffs)
+
+
+# Define a video capture object
+if useVid:
+    vid = cv.VideoCapture(1, cv.CAP_DSHOW)
+    vid.set(cv.CAP_PROP_FRAME_WIDTH, xDef)
+    vid.set(cv.CAP_PROP_FRAME_HEIGHT, yDef)
+    
+    if not vid.isOpened():
+        raise IOError("Cannot open webcam")
+    
+    vid.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
+    vid.set(cv.CAP_PROP_EXPOSURE, -7)
+
+
+# Setup axidraw
+if useAxi:
+    axi = axidraw.AxiDraw()          # Initialize class
+    axi.interactive()                # Enter interactive context
+    if not axi.connect():            # Open serial port to AxiDraw;
+        print("not connected")
+        quit()
+    print("connected!")
+    axi.options.units = 2
+
+
+# Gets the image file if not using camera feed
 if not useVid:
     parser = argparse.ArgumentParser(description='Code for Finding contours in your image tutorial.')
-    parser.add_argument('--input', help='', default='screenGrab.jpg')
+    parser.add_argument('--input', help='', default='./sampleImages/16mpzoomin.jpg')
     args = parser.parse_args()
     
     src = cv.imread(cv.samples.findFile(args.input))
@@ -670,10 +528,10 @@ if not useVid:
 
 
 
-
 #execution loop
 
 while True:
+    # Get the frame that will be used to create the collaboration
     if useVid:
         ret, frame = vid.read()
         if not ret:
@@ -682,79 +540,20 @@ while True:
     else:
         frame = src
 
-    yi = 650
-    xi = 1050
-
-
-
-    # Convert to grayscale
-    src_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
-
-    src_hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-
-    # Define the range of yellow color in HSV
-    lower_red1 = (0, 100, 25)    # Lower bound of lower red range (H, S, V)
-    upper_red1 = (10, 255, 255)  # Upper bound of lower red range (H, S, V)
-    lower_red2 = (150, 100, 25)  # Lower bound of upper red range (H, S, V)
-    upper_red2 = (179, 255, 255) # Upper bound of upper red range (H, S, V)
-
-    # Threshold the HSV image to get only red colors
-    mask1 = cv.inRange(src_hsv, lower_red1, upper_red1)
-    mask2 = cv.inRange(src_hsv, lower_red2, upper_red2)
-    thresholded = cv.bitwise_or(mask1, mask2)
-
-    contours, _ = cv.findContours(thresholded, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-
-    # Apply blur to smooth the edges and reduce noise
-    src_gray = cv.blur(src_gray, (3, 3))
-
-    # Perform Canny edge detection
-    canny_output = cv.Canny(src_gray, thresh, thresh * 2)
-
-    # Find contours
-    contours, hierarchy = cv.findContours(canny_output, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-
-    # Create an empty image for drawing contours
-    contours_img = np.zeros_like(frame)
-
-    # Drawing the contours on the empty image
-    for i in range(len(contours)):
-        color = (255, 255, 255)
-        cv.drawContours(contours_img, contours, i, color, 0, cv.LINE_8, hierarchy, 0)
-
-    # Show the contours in a separate window
-    cv.imshow('Contours', contours_img)      
-
-
-    
-    #shows the line that the axidraw considers to be the location of the hand drawn line
-    showPreviewLine = False
-    if showPreviewLine and not isDrawing:
-        # Determine the points that the axidraw would aim for when activated
-        tracedLine = findLine()
-        
-        #adjust size and position of tracedLine to be accurate to how the axidraw moves
-
-
-
-        if tracedLine != None:
-            # Reshape the points array to the required shape for cv.polylines
-            tracedLine = np.array(tracedLine, np.int32).reshape((-1, 1, 2))
-
-            # Draw the polyline on the frame
-            # (frame, [points], isClosed, color, thickness)
-            cv.polylines(frame, [tracedLine], isClosed=False, color=(0, 0, 255), thickness=1)
-
-
-
     # Show the live video feed
-    cv.imshow('Live Video Feed', frame)  
+    #cv.imshow('Live Video Feed', frame)
+    frame = cv.resize(frame[cropYmin:cropYmin+cropH, cropXmin:cropXmin+cropW], (cropW, cropH))
 
+    cv.imshow('Contours', frame)
 
     # Break the loop when 'esc' key is pressed
     k = cv.waitKey(1) & 0xFF
-    if k == 27:
+    if k == 32:  #spacebar
+        beginCollaboration(frame)
+    elif k == 27:  #esc
+        stopCollaboration()
+    elif k == 113:  #q
+        axi.moveto(0, 0)
         break
 
 # Release the VideoCapture object and close display windows
