@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 import os
-from scipy.ndimage import convolve
 from dataclasses import dataclass
 import random as rand
 
@@ -51,24 +50,6 @@ def image_to_binary_array(image_path, threshold=128):
     binary_array = (image < threshold).astype(np.uint8)
     
     return binary_array
-
-
-#Fills in any pixel that is surrounded by 3 or more filled pixels
-def fill_enclosed_pixels(binary_array):
-    kernel = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])  # 4-connected neighborhood
-    changed = True
-    while changed:
-        neighbor_count = convolve(binary_array, kernel, mode='constant', cval=0)
-        new_array = np.where((binary_array == 0) & (neighbor_count >= 3), 1, binary_array)
-        changed = not np.array_equal(new_array, binary_array)
-        binary_array = new_array
-    return binary_array
-
-
-def fill_holes_morph(binary_image):
-    kernel = np.ones((5,5), np.uint8)  # Small structuring element
-    closed = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel)
-    return closed
 
 
 def find_surfaces(island):
@@ -132,34 +113,15 @@ def find_area_height(image, surface):
     return roof
 
 
-def main(frame, thresh, imageProvided=True):
+def main(binary_array):
     #defines where the island visualizer image will be stored
     output_folder = "sampleImages_output"
     os.makedirs(output_folder, exist_ok=True)
-
-    if imageProvided:
-        binary_array = (frame < thresh).astype(np.uint8)
-    else:
-        # Define the path to the image
-        input_folder = "sampleImages"
-        input_filename = "squiggles.jpg"
-
-        # Convert image to binary array
-        binary_array = image_to_binary_array(os.path.join(input_folder, input_filename), thresh)
-    
     
     binary_array_H, binary_array_W = binary_array.shape
 
-
-    # Fill in any pixel that is surrounded by 3 or more filled pixels
-    filled_holes_img = fill_enclosed_pixels(binary_array)
-
-    # Use a morphological dialation/erosion system to close holes
-    morpho_img = fill_holes_morph(filled_holes_img)
-
-
     #identify the groups of black pixels, "islands"
-    num_labels, labeled_img, stats, centroids = cv2.connectedComponentsWithStats(morpho_img, connectivity=4)
+    num_labels, labeled_img, stats, centroids = cv2.connectedComponentsWithStats(binary_array, connectivity=4)
 
     islandList = []
     for label in range(1, num_labels):  # Start from 1 to skip background
@@ -176,7 +138,7 @@ def main(frame, thresh, imageProvided=True):
     for island in islandList:
         island.surfaces = find_surfaces(island)
         for surface in island.surfaces:
-            island.roofs.append(find_area_height(morpho_img, surface))
+            island.roofs.append(find_area_height(binary_array, surface))
 
         if len(island.surfaces) != len(island.roofs):
             print("ERROR: unequal number of surfaces and roofs")
@@ -210,8 +172,6 @@ def main(frame, thresh, imageProvided=True):
     # Display sample image
     display_image(binary_array, "squiggles.jpg", output_folder)
     
-    display_image(morpho_img, "squigglesMorph.jpg", output_folder)
-
     display_image(islandImg, "islands.jpg", output_folder, False)
 
 
