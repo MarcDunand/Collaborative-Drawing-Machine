@@ -77,7 +77,7 @@ def find_surfaces(island):
             if prev[1] == cur[1]:  #if X has not increased, keep going until X increases
                 i += 1
             elif prev[1] + 1 == cur[1]:  #if X has increased by 1, we check if connected
-                if abs(prev[0] - cur[0]) <= 20:  #checks if connected
+                if abs(prev[0] - cur[0]) <= 40:  #checks if connected
                     surface.append(surfacePoints.pop(i))
                     prev = cur
                 else:

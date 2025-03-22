@@ -3,13 +3,14 @@ import numpy as np
 import random as rand
 import math
 from pyaxidraw import axidraw
-from scipy.interpolate import splprep, splev
 from scipy.ndimage import convolve
 import argparse
 import imageConverter as imgc
 from imageConverter import Island
 import axiDoodles as do
+import previewDoodles as pr
 import threading
+from PIL import Image, ImageDraw
 
 
 
@@ -17,7 +18,7 @@ import threading
 xDef = 4656  #resolution of the camera
 yDef = 3496
 
-thresh = 180  #higher means more land
+thresh = 140  #higher means more land
 
 #controls the size of the cropped in image
 cropXmin = 1965
@@ -119,11 +120,12 @@ def drawLandscape(tracedLine):
     global isDrawing
     isDrawing = True
 
+
     #gets the set of points that the axidraw will consider to be the hand drawn line
     if tracedLine == None:
         print("failed to find line")
         axi.moveto(0, 0)
-        return
+        return    
 
     #AXIDRAW
     axi.moveto(0, 0)
@@ -182,6 +184,65 @@ def drawLandscape(tracedLine):
     axi.moveto(0, 0)
     isDrawing = False
 
+
+def previewLandscape(tracedLine, draw):
+    global isDrawing
+    isDrawing = True
+
+    d = 0
+    xMin = tracedLine[0][0]
+    xMax = tracedLine[-1][0]
+    for i in range(len(tracedLine)):
+        if i > d:
+            alignTest = False
+            [y, x] = tracedLine[i]
+            if rand.random() < 0.1:
+                print("Attempting: Striation")
+                pr.drawStriation(draw, tracedLine, i, x, y, 15, 100)
+
+            birdScale = 3
+            if rand.random() < 0.01 and y > 2*birdScale:
+                print("Drawing: Bird")
+                pr.drawBird(draw, x, rand.uniform(10, (y-3*birdScale)), birdScale, 60)
+
+            #generate flocks    
+            if rand.random() < 0.003 and y > 2+3*birdScale:
+                print("Drawing: Flock")
+                stepSize = birdScale*10
+                birdx = x
+                birdy = rand.uniform(10, (y-3*birdScale))
+                for i in range(rand.randrange(5, 30)):
+                    birdx += rand.uniform(-1*stepSize, stepSize)
+                    birdy += rand.uniform(-1*stepSize*S, stepSize*S)
+                    pr.drawBird(draw, birdx, birdy, birdScale, 60)
+
+
+            featureGen = rand.random()
+            if featureGen < 0.06:  # 6%
+                print("Drawing: Tree")
+                alignTest = True
+                d = pr.drawTree(draw, i, x, y, 30)
+            elif featureGen < 0.1: # 4%
+                print("Drawing: Tower")
+                alignTest = True
+                d = pr.drawTower(draw, tracedLine, i)
+            elif featureGen < 0.13: # 3%
+                print("Attempting: Village")
+                alignTest = True
+                d = pr.drawVillage(draw, tracedLine, i)
+            elif featureGen < 0.16: # 3%
+                print("Attempting: Lake")
+                d = pr.drawLake(draw, tracedLine, i, x, y, 20, 100, 6)
+
+            # if alignTest:
+            #     roi = frame[x-25:x+25, y-25:y+25]
+            #     cv.imshow('Working Area', roi)
+            
+
+
+    isDrawing = False
+
+
 # Test to see if new surface detection is working
 def traceSurfaces(islandList):
     global isRunning
@@ -220,9 +281,16 @@ def runCollaboration(frame):
 
     isRunning = False
 
+    #setup preview image
+    greyscaleConvert = np.where(frame == 0, 255, 0).astype(np.uint8)
+    preview = Image.fromarray(greyscaleConvert).convert("L")
+    draw = ImageDraw.Draw(preview)
+
     for island in islandList:
         for surface in island.surfaces:
-            drawLandscape(surface)
+            previewLandscape(surface, draw)
+            preview.save("./sampleImages_output/collaboration_preview.jpg")
+
 
 
 
