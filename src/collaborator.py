@@ -1,7 +1,6 @@
 import cv2 as cv
 import numpy as np
 import random as rand
-import math
 from pyaxidraw import axidraw
 from scipy.ndimage import convolve
 import argparse
@@ -9,8 +8,11 @@ import imageConverter as imgc
 from imageConverter import Island
 import axiDoodles as do
 import previewDoodles as pr
+import featurePlotting as plot
 import threading
+import time
 from PIL import Image, ImageDraw
+import traceback
 
 
 
@@ -18,17 +20,17 @@ from PIL import Image, ImageDraw
 xDef = 4656  #resolution of the camera
 yDef = 3496
 
-thresh = 140  #higher means more land
+thresh = 75  #higher means more land
 
 #controls the size of the cropped in image
-cropXmin = 1965
-cropYmin = 1476
-cropW = 1007
-cropH = 684
+cropXmin = 1843
+cropYmin = 1312
+cropW = 1121
+cropH = 821
 
-S = 300
-xc = 0
-yc = 0
+S = 248
+xc = 47
+yc = 58
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
@@ -62,11 +64,11 @@ def on_cropH(val):
 
 def on_xstrackbar(val):
     global xc
-    xc = (val*-1)/10
+    xc = val/10
 
 def on_ystrackbar(val):
     global yc
-    yc = (val*-1)/10
+    yc = val/10
 
 def on_Strackbar(val):
     global S
@@ -114,100 +116,68 @@ def preprocess_image(frame, thresh):
     return morpho_img
 
 
+def plotReceipt(receipt):
+    global isRunning
 
-#Draws all doodles onto given line
-def drawLandscape(tracedLine):
-    global isDrawing
-    isDrawing = True
-
-
-    #gets the set of points that the axidraw will consider to be the hand drawn line
-    if tracedLine == None:
-        print("failed to find line")
-        axi.moveto(0, 0)
-        return    
-
-    #AXIDRAW
-    axi.moveto(0, 0)
-
-    d = 0
-    xMin = tracedLine[0][0]
-    xMax = tracedLine[-1][0]
-    for i in range(len(tracedLine)):
-        if i > d:
-            alignTest = False
-            [x, y] = tracedLine[i]
-            if rand.random() < 0.1:
-                print("Attempting: Striation")
-                do.drawStriation(axi, tracedLine, i, x, y, 4, 60, S, xc, yc)
-
-            birdScale = 0.7
-            if rand.random() < 0.01 and y > 2*birdScale:
-                print("Drawing: Bird")
-                do.drawBird(axi, x, rand.uniform(10, (y-3*birdScale)*S+yc), birdScale, xc, yc, S)
-
-            #generate flocks    
-            if rand.random() < 0.003 and y > 2+3*birdScale:
-                print("Drawing: Flock")
-                stepSize = 60*S
-                birdx = x
-                birdy = rand.uniform(10, (y-3*birdScale)*S+yc)
-                for i in range(rand.randrange(5, 30)):
-                    birdx += rand.uniform(-1*stepSize, stepSize)
-                    birdy += rand.uniform(-1*stepSize*S, stepSize*S)
-                    do.drawBird(axi, birdx, birdy, birdScale, xc, yc, S)
-
-
-            featureGen = rand.random()
-            if featureGen < 0.06:  # 6%
-                print("Drawing: Tree")
-                alignTest = True
-                d = do.drawTree(axi, i, x*S + xc, y*S + yc, -30*S)
-            elif featureGen < 0.1: # 4%
-                print("Drawing: Tower")
-                alignTest = True
-                d = do.drawTower(axi, tracedLine, i, S, xc, yc)
-            elif featureGen < 0.13: # 3%
-                print("Attempting: Village")
-                alignTest = True
-                d = do.drawVillage(axi, tracedLine, i, S, xc, yc)
-            elif featureGen < 0.16: # 3%
-                print("Attempting: Lake")
-                d = do.drawLake(axi, tracedLine, i, x, y, 8, 70, 4*S, S, xc, yc)
-
-            # if alignTest:
-            #     roi = frame[x-25:x+25, y-25:y+25]
-            #     cv.imshow('Working Area', roi)
+    for subReceipt in receipt:
+        for feature in subReceipt:
+            #Can interrupt drawing by pressing esc
+            if not isRunning:
+                print("Drawing interrupted!")
+                axi.moveto(0, 0)
+                return
             
+            #attempt to draw a feature
+            try: 
+                if feature[0] == "S":  #striation
+                    plot.striation(axi, feature[1], S, xc, yc)
+                elif feature[0] == "B":  #Bird
+                    plot.bird(axi, feature[1], S, xc, yc)
+                elif feature[0] == "Tr":  #Tree
+                    plot.tree(axi, feature[1], S, xc, yc)
+                elif feature[0] == "To":  #Tower
+                    plot.tower(axi, feature[1], S, xc, yc)
+                elif feature[0] == "L":  #Lake
+                    plot.lake(axi, feature[1], S, xc, yc)
 
+            except Exception as e:
+                print(f"Error during plotting: {e}")
+                traceback.print_exc()
+                axi.penup()
 
     axi.moveto(0, 0)
-    isDrawing = False
+                
 
-
-def previewLandscape(tracedLine, draw):
+def previewLandscape(draw, tracedLine, overhang):
     global isDrawing
     isDrawing = True
 
-    d = 0
-    xMin = tracedLine[0][0]
-    xMax = tracedLine[-1][0]
+    subReceipt = []  #holds all data about all features drawn
+    birdScale = 3
+
+    d = 0  #keeps track of the closest position a new feature can be drawn
     for i in range(len(tracedLine)):
         if i > d:
-            alignTest = False
             [y, x] = tracedLine[i]
-            if rand.random() < 0.1:
-                print("Attempting: Striation")
-                pr.drawStriation(draw, tracedLine, i, x, y, 15, 100)
+            [hy, _] = overhang[i]
+            h = y - hy  #height on this column of pixels
 
-            birdScale = 3
+            #attempts to generate altitude striations
+            if rand.random() < 0.1:
+                striaInfo = pr.drawStriation(draw, tracedLine, i, x, y, 10, 80)
+
+                if striaInfo != -1:  #if a line has been drawn
+                    subReceipt.append(("S", striaInfo))  #add info about the drawn striation to receipt
+
+            #generates single birds
             if rand.random() < 0.01 and y > 2*birdScale:
-                print("Drawing: Bird")
-                pr.drawBird(draw, x, rand.uniform(10, (y-3*birdScale)), birdScale, 60)
+                birdy = rand.uniform(10, (y-3*birdScale))
+                pr.drawBird(draw, x, birdy, birdScale, 60)
+
+                subReceipt.append(("B", [x, birdy, birdScale, 60]))  #add drawn bird to receipt
 
             #generate flocks    
             if rand.random() < 0.003 and y > 2+3*birdScale:
-                print("Drawing: Flock")
                 stepSize = birdScale*10
                 birdx = x
                 birdy = rand.uniform(10, (y-3*birdScale))
@@ -216,52 +186,54 @@ def previewLandscape(tracedLine, draw):
                     birdy += rand.uniform(-1*stepSize*S, stepSize*S)
                     pr.drawBird(draw, birdx, birdy, birdScale, 60)
 
+                    subReceipt.append(("B", [birdx, birdy, birdScale, 60]))  #add drawn bird to receipt
+
 
             featureGen = rand.random()
-            if featureGen < 0.06:  # 6%
-                print("Drawing: Tree")
-                alignTest = True
-                d = pr.drawTree(draw, i, x, y, 30)
-            elif featureGen < 0.1: # 4%
-                print("Drawing: Tower")
-                alignTest = True
-                d = pr.drawTower(draw, tracedLine, i)
-            elif featureGen < 0.13: # 3%
-                print("Attempting: Village")
-                alignTest = True
-                d = pr.drawVillage(draw, tracedLine, i)
-            elif featureGen < 0.16: # 3%
-                print("Attempting: Lake")
-                d = pr.drawLake(draw, tracedLine, i, x, y, 20, 100, 6)
+            if featureGen < 0.1:  # 10% tree
+                (d, treeInfo) = pr.drawTree(draw, i, x, y, min(60, h))
+                subReceipt.append(("Tr", treeInfo))
 
-            # if alignTest:
-            #     roi = frame[x-25:x+25, y-25:y+25]
-            #     cv.imshow('Working Area', roi)
+            elif featureGen < 0.115: # 1.5% tower
+                (d, towerInfo)  = pr.drawTower(draw, tracedLine, overhang, i)
+                if towerInfo != -1:
+                    subReceipt.append(("To", towerInfo))
+
+            elif featureGen < 0.12: # 0.5% village
+                (d, villageInfo) = pr.drawVillage(draw, tracedLine, overhang, i)
+                subReceipt.extend(villageInfo)
+
+            elif featureGen < 0.5:#0.17: # 5% lake
+                (d, lakeInfo) = pr.drawLake(draw, tracedLine, i, x, y, 20, 150, 6)
+                if lakeInfo != -1:
+                    subReceipt.append(("L", lakeInfo))
+
+    return subReceipt
             
-
-
-    isDrawing = False
 
 
 # Test to see if new surface detection is working
 def traceSurfaces(islandList):
     global isRunning
     
+    axi.penup()
     for island in islandList:
         for surface in island.surfaces:
-            [startX, startY] = surface[0]
+            [startY, startX] = surface[0]
             axi.penup()
             axi.moveto(startX*S+xc, startY*S+yc)
             axi.pendown()
 
-            for i in range(0, len(surface), 4):
+            for i in range(0, len(surface)):
                 if not isRunning:
                     print("Drawing interrupted!")
                     axi.moveto(0, 0)
                     return
                 
-                [x, y] = surface[i]
+                [y, x] = surface[i]
                 axi.lineto(x*S+xc, y*S+yc)
+                print(x, y)
+
 
             axi.penup()
 
@@ -275,21 +247,36 @@ def runCollaboration(frame):
     # Runs imageConverter to get data about islands and surfaces in the drawn image
     islandList = imgc.main(frame)
     print(len(islandList))
-    # Test attempting to trace the location of all island surfaces
-    if useAxi:
-        traceSurfaces(islandList)
 
-    isRunning = False
-
-    #setup preview image
+    #setup preview image file
     greyscaleConvert = np.where(frame == 0, 255, 0).astype(np.uint8)
     preview = Image.fromarray(greyscaleConvert).convert("L")
     draw = ImageDraw.Draw(preview)
 
+    #create preview image file and calculate features to be drawn
+    receipt = []
     for island in islandList:
-        for surface in island.surfaces:
-            previewLandscape(surface, draw)
-            preview.save("./sampleImages_output/collaboration_preview.jpg")
+        for i in range(len(island.surfaces)):
+            surface = island.surfaces[i]
+            overhang = island.overhangs[i]
+            receipt.append(previewLandscape(draw, surface, overhang))
+    
+    preview.save("./sampleImages_output/collaboration_preview.jpg")
+
+    #Draw features with axi
+    if useAxi:
+        #traceSurfaces(islandList)  # Test attempting to trace the location of all island surfaces
+        try:
+            plotReceipt(receipt)
+        except Exception as e:
+            print(f"Error during plotting: {e}")
+            traceback.print_exc()
+            axi.goto(0, 0)
+        else:
+            print("Plotting succesful!")
+        
+    isRunning = False
+
 
 
 
@@ -340,7 +327,7 @@ cv.createTrackbar('Height', 'Positioning', cropH, yDef, on_cropH)
 
 if useVid:
     # Define a video capture object
-    vid = cv.VideoCapture(1, cv.CAP_DSHOW)
+    vid = cv.VideoCapture(0, cv.CAP_DSHOW)
     vid.set(cv.CAP_PROP_FRAME_WIDTH, xDef)
     vid.set(cv.CAP_PROP_FRAME_HEIGHT, yDef)
     
@@ -352,7 +339,7 @@ if useVid:
 else:
     # Gets the image file
     parser = argparse.ArgumentParser(description='Code for Finding contours in your image tutorial.')
-    parser.add_argument('--input', help='', default='./sampleImages/16mpzoomin.jpg')
+    parser.add_argument('--input', help='', default='./sampleImages/bwWiggles.jpg')
     args = parser.parse_args()
     
     src = cv.imread(cv.samples.findFile(args.input))
@@ -375,16 +362,22 @@ if useAxi:
 
 #execution loop
 
+last_capture_time = 0
+capture_interval = 1
+
 while True:
     # Get the frame that will be used to create the collaboration
-    if useVid:
+    if useVid and time.time() - last_capture_time > capture_interval:
+        last_capture_time = time.time()
+
         ret, frame = vid.read()
         if not ret:
             print("Failed to grab frame")
             break
-
+        
         frame = cv.resize(frame[cropYmin:cropYmin+cropH, cropXmin:cropXmin+cropW], (cropW, cropH))
-    else:
+        frame = cv.flip(frame, -1)
+    elif not useVid:
         frame = src
         
     #generates the frame that will be interpreted by the collaborator

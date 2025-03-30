@@ -11,7 +11,7 @@ class Island:
     size : int
     points : np.array
     surfaces : list
-    roofs : list
+    overhangs : list
 
 
 
@@ -77,7 +77,7 @@ def find_surfaces(island):
             if prev[1] == cur[1]:  #if X has not increased, keep going until X increases
                 i += 1
             elif prev[1] + 1 == cur[1]:  #if X has increased by 1, we check if connected
-                if abs(prev[0] - cur[0]) <= 40:  #checks if connected
+                if abs(prev[0] - cur[0]) <= 10:  #checks if connected
                     surface.append(surfacePoints.pop(i))
                     prev = cur
                 else:
@@ -96,7 +96,7 @@ def find_surfaces(island):
 
 
 def find_area_height(image, surface):
-    roof = np.empty(surface.shape, dtype=surface.dtype)
+    overhang = np.empty(surface.shape, dtype=surface.dtype)
     for i in range(len(surface)):
         (y, x) = surface[i]
         # Extract column up to y (excluding y itself)
@@ -106,11 +106,11 @@ def find_area_height(image, surface):
         black_pixel_rows = np.where(column_above == 1)[0]
 
         if black_pixel_rows.size > 0:
-            roof[i] = (black_pixel_rows[-1] + 1, x)  # Last black pixel in the search direction (top-down)
+            overhang[i] = (black_pixel_rows[-1] + 1, x)  # Last black pixel in the search direction (top-down)
         else:
-            roof[i] = (0, x)
+            overhang[i] = (0, x)
     
-    return roof
+    return overhang
 
 
 def main(binary_array):
@@ -131,17 +131,17 @@ def main(binary_array):
     islandImg = np.zeros((binary_array_H, binary_array_W, 3), dtype=np.uint8)
 
     #remove islands that are too small
-    islandList = [island for island in islandList if island.size >= 200]
+    islandList = [island for island in islandList if island.size >= 5]
 
 
     #find surfaces on islands
     for island in islandList:
         island.surfaces = find_surfaces(island)
         for surface in island.surfaces:
-            island.roofs.append(find_area_height(binary_array, surface))
+            island.overhangs.append(find_area_height(binary_array, surface))
 
-        if len(island.surfaces) != len(island.roofs):
-            print("ERROR: unequal number of surfaces and roofs")
+        if len(island.surfaces) != len(island.overhangs):
+            print("ERROR: unequal number of surfaces and overhangs")
             
 
 
@@ -150,17 +150,17 @@ def main(binary_array):
         islandImg[island.points[:, 0], island.points[:, 1]] = randColor(20, 255)
         for surface in island.surfaces:
             islandImg[surface[:, 0], surface[:, 1]] = randColor(20, 255)
-        for roof in island.roofs:
-            islandImg[roof[:, 0], roof[:, 1]] = randColor(20, 255)
+        for overhang in island.overhangs:
+            islandImg[overhang[:, 0], overhang[:, 1]] = randColor(20, 255)
 
         for i in range(len(island.surfaces)):
-            surface, roof = island.surfaces[i], island.roofs[i]
+            surface, overhang = island.surfaces[i], island.overhangs[i]
             
             y_indices = np.arange(islandImg.shape[0])[:, None]  # Column vector for row indices
             x_indices = surface[:, 1]  # Extract x-coordinates
 
-            # Generate row indices where y is between roof and floor
-            valid_rows = (y_indices > roof[:, 0]) & (y_indices < surface[:, 0])
+            # Generate row indices where y is between overhang and floor
+            valid_rows = (y_indices > overhang[:, 0]) & (y_indices < surface[:, 0])
 
             # Extract row indices and corresponding x indices
             row_indices, col_indices = np.where(valid_rows)  # Get valid (y, x) pairs
