@@ -34,7 +34,7 @@ yc = 58
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
-useVid = False  # Choose whether to use camera or internal file for capture
+useVid = True  # Choose whether to use camera or internal file for capture
 useAxi = False  # For bugfixing while away from axidraw, program only works correctly with val is True
 
 
@@ -148,7 +148,7 @@ def plotReceipt(receipt):
     axi.moveto(0, 0)
                 
 
-def previewLandscape(draw, tracedLine, overhang):
+def previewSurface(draw, tracedLine, overhang):
     global isDrawing
     isDrawing = True
 
@@ -209,7 +209,26 @@ def previewLandscape(draw, tracedLine, overhang):
                     subReceipt.append(("L", lakeInfo))
 
     return subReceipt
+
+
+
+
+#ONGOING to be used to draw features that are not surface-depenedent (like bridges)
+def previewSky(draw, surfaceList):
+    for i in range(len(surfaceList)):
+        s1 = surfaceList[i]
+        [s1xL, s1yL] = s1[0]
+        [s1xR, s1yR] = s1[-1]
+        print(type(s1))
+        for j in range(i+1, len(surfaceList)):
+            s2 = surfaceList[j]
+            [s2xL, s2yL] = s2[0]
+            [s2xR, s2yR] = s2[-1]
+
             
+
+
+
 
 
 # Test to see if new surface detection is working
@@ -246,7 +265,9 @@ def runCollaboration(frame):
 
     # Runs imageConverter to get data about islands and surfaces in the drawn image
     islandList = imgc.main(frame)
-    print(len(islandList))
+    surfaceList = []
+    for island in islandList:
+        surfaceList.extend(island.surfaces)
 
     #setup preview image file
     greyscaleConvert = np.where(frame == 0, 255, 0).astype(np.uint8)
@@ -255,11 +276,12 @@ def runCollaboration(frame):
 
     #create preview image file and calculate features to be drawn
     receipt = []
+    #receipt.append(previewSky(draw, surfaceList))  #TODO impliment
     for island in islandList:
         for i in range(len(island.surfaces)):
             surface = island.surfaces[i]
             overhang = island.overhangs[i]
-            receipt.append(previewLandscape(draw, surface, overhang))
+            receipt.append(previewSurface(draw, surface, overhang))
     
     preview.save("./sampleImages_output/collaboration_preview.jpg")
 

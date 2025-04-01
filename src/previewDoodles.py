@@ -103,7 +103,7 @@ def drawFish(draw, x, y, fishLen, fishDir):
 
     draw.polygon(tail)
 
-    return (upperBody, lowerBody, tail)
+    return [upperBody, lowerBody, tail]
 
 
 def generateAllFish(draw, allDepths, fishProb, fishSize, fishDir, startX, startY):
@@ -118,6 +118,7 @@ def generateAllFish(draw, allDepths, fishProb, fishSize, fishDir, startX, startY
         return
     
     i = edgeBuffer
+    fishReceipt = []
     while i in range(edgeBuffer, lakeW - edgeBuffer):
         if allDepths[i] > 2*buffer + fishR and rand.random() < fishProb:
             xIdx = i
@@ -129,7 +130,7 @@ def generateAllFish(draw, allDepths, fishProb, fishSize, fishDir, startX, startY
 
             maxCurIdx = i
             while(minIdx <= xIdx < maxIdx and minY <= y < startY + (allDepths[xIdx] - edgeBuffer)):
-                drawFish(draw, xIdx+startX, y, fishSize, fishDir)
+                fishReceipt.append(drawFish(draw, xIdx+startX, y, fishSize, fishDir))
                 xStep = rand.randint(-stepSize, stepSize)
                 xIdx += xStep
                 yStepR = stepSize-xStep
@@ -139,6 +140,8 @@ def generateAllFish(draw, allDepths, fishProb, fishSize, fishDir, startX, startY
 
             i = maxCurIdx
         i += 1
+
+    return fishReceipt
 
 
 
@@ -154,8 +157,8 @@ def drawLakeFeatures(draw, lineArr, startIdx, x, y, waveLen, endIdx):
     draw.line([x, y, x+waveD, y])  #maybe remove?
 
     boatloc = int(rand.randrange(0, int((waveNum-2)*2)))
+    boatInfo = -1  #retains this value if no boat is drawn
     for i in range(waveNum-2):
-
         #draw a wave
         xminBound = x+waveD*(i+1)
         draw.arc([xminBound, y-waveD/2, xminBound+waveD, y+waveD/2], 0, 180, fill = 0)
@@ -224,7 +227,7 @@ def drawLake(draw, tracedLine, i, x, y, minLake, maxLake, waveLen):
     if endIdx != 0 and maxDetectedDepth >= minDepth:  #create a lake if in bounds and deep enough
         lakeInfo = drawLakeFeatures(draw, tracedLine, i, x, y, waveLen, endIdx)
 
-        generateAllFish(draw, allDepths, 0.05, 10, rand.choice([-1, 1]), x, y)
+        lakeInfo.append(generateAllFish(draw, allDepths, 0.01, 10, rand.choice([-1, 1]), x, y))
 
         return (endIdx, lakeInfo)
 

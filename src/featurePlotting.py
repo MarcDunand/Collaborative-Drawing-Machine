@@ -53,6 +53,38 @@ def arc(axi, x, y, rx, ry, thetaS, thetaE, raisePen):
         axi.penup()
 
 
+def convertDrawPoly(axi, pointsList, S, xc, yc):
+    axi.moveto(pointsList[0]*S+xc, pointsList[1]*S+yc)
+
+    for i in range(2, len(pointsList), 2):
+        axi.lineto(pointsList[i]*S+xc, pointsList[i+1]*S+yc)
+
+    axi.lineto(pointsList[0]*S+xc, pointsList[1]*S+yc)
+    axi.penup()
+
+
+
+
+#convert from PIL drawing convention to axi drawing convention
+
+def convertArc(x1, y1, x2, y2, r1, r2, S, xc, yc):
+    x1 = x1*S + xc
+    y1 = y1*S + yc
+    x2 = x2*S + xc
+    y2 = y2*S + yc
+
+    thetaS = math.radians(r1-90)
+    thetaE = math.radians(r2-90)
+
+    rx = (x2-x1)/2
+    ry = (y2-y1)/2
+    x = x1+rx
+    y = y1+ry
+
+    return [x, y, rx, ry, thetaS, thetaE]
+
+
+
 
 #Functions for drawing doodles
 
@@ -111,20 +143,14 @@ def striation(axi, endpoints, S, xc, yc):
 
 
 def lake(axi, desc, S, xc, yc):
-    [waveInfo, boatInfo] = desc
+    [waveInfo, boatInfo, fishInfo] = desc
     [startX, endX, y, waveD, waveNum] = waveInfo
-    [boatX, boatScale, sailDir] = boatInfo
 
     #convert to axi coordinates
     startX = startX*S+xc
     endX = endX*S+xc
     y = y*S+yc
     waveD*=S
-    
-    boatScale*=S
-    boatX = boatX*S+xc
-    boatY = y - boatScale/4
-
 
     #Draw lake
     axi.moveto(startX, y)
@@ -132,27 +158,45 @@ def lake(axi, desc, S, xc, yc):
 
     for i in range(waveNum-2):
         arc(axi, startX+waveD*i+waveD*1.5, y, waveD/2, waveD/2, np.pi*1.5, np.pi*2.5, False)
-        #arc(x*S+xc+waveD*i+waveD*1.5, (lineArr[endIdx][1]*(i/waveNum) + y*((waveNum-i)/waveNum))*S+yc, waveD/2, waveD/2, np.pi*1.5, np.pi*2.5, False)
 
     axi.moveto(endX-waveD, y)
     axi.lineto(endX, y)
 
 
     #Draw boat
-    arc(axi, boatX, boatY, boatScale, boatScale/2, np.pi*1.5, np.pi*2.5, True) 
-    axi.moveto(boatX-boatScale, boatY)
-    axi.lineto(boatX+boatScale, boatY)
+    if boatInfo != -1:
+        [boatX, boatScale, sailDir] = boatInfo
+        boatScale*=S
+        boatX = boatX*S+xc
+        boatY = y - boatScale/4
+        
+        arc(axi, boatX, boatY, boatScale, boatScale/2, np.pi*1.5, np.pi*2.5, True) 
+        axi.moveto(boatX-boatScale, boatY)
+        axi.lineto(boatX+boatScale, boatY)
 
-    if sailDir:
-        axi.moveto(boatX-boatScale/3, boatY)
-        axi.lineto(boatX-boatScale/3, boatY-(2*boatScale))
-        axi.lineto(boatX+(2/3)*boatScale, boatY)
-        axi.lineto(boatX-boatScale/3, boatY)
-    else:
-        axi.moveto(boatX+boatScale/3, boatY)
-        axi.lineto(boatX+boatScale/3, boatY-(2*boatScale))
-        axi.lineto(boatX-(2/3)*boatScale, boatY)
-        axi.lineto(boatX+boatScale/3, boatY)
+        if sailDir:
+            axi.moveto(boatX-boatScale/3, boatY)
+            axi.lineto(boatX-boatScale/3, boatY-(2*boatScale))
+            axi.lineto(boatX+(2/3)*boatScale, boatY)
+            axi.lineto(boatX-boatScale/3, boatY)
+        else:
+            axi.moveto(boatX+boatScale/3, boatY)
+            axi.lineto(boatX+boatScale/3, boatY-(2*boatScale))
+            axi.lineto(boatX-(2/3)*boatScale, boatY)
+            axi.lineto(boatX+boatScale/3, boatY)
+
+
+    #Draw fish
+    for fish in fishInfo:
+        [upperBody, lowerBody, tail] = fish
+        upperBodyArgs = convertArc(*upperBody, S, xc, yc)
+        lowerBodyArgs = convertArc(*lowerBody, S, xc, yc)
+
+        axi.penup()
+        arc(axi, *upperBodyArgs, False)
+        arc(axi, *lowerBodyArgs, False)
+        convertDrawPoly(axi, tail, S, xc, yc)
+
         
     axi.penup()
 
