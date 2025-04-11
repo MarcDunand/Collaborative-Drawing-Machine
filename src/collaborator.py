@@ -20,22 +20,22 @@ import traceback
 xDef = 4656  #resolution of the camera
 yDef = 3496
 
-thresh = 75  #higher means more land
+thresh = 157  #higher means more land
 
 #controls the size of the cropped in image
-cropXmin = 1843
-cropYmin = 1312
-cropW = 1121
-cropH = 821
+cropXmin = 1055
+cropYmin = 1615
+cropW = 1354
+cropH = 965
 
-S = 248
-xc = 47
-yc = 58
+S = 454
+xc = 118
+yc = 100
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
 useVid = True  # Choose whether to use camera or internal file for capture
-useAxi = False  # For bugfixing while away from axidraw, program only works correctly with val is True
+useAxi = True  # For bugfixing while away from axidraw, program only works correctly with val is True
 
 
 
@@ -64,15 +64,15 @@ def on_cropH(val):
 
 def on_xstrackbar(val):
     global xc
-    xc = val/10
+    xc = val/10 - 10
 
 def on_ystrackbar(val):
     global yc
-    yc = val/10
+    yc = val/10 - 10
 
 def on_Strackbar(val):
     global S
-    S = val/1000
+    S = val/2000
 
 
 
@@ -203,7 +203,7 @@ def previewSurface(draw, tracedLine, overhang):
                 (d, villageInfo) = pr.drawVillage(draw, tracedLine, overhang, i)
                 subReceipt.extend(villageInfo)
 
-            elif featureGen < 0.5:#0.17: # 5% lake
+            elif featureGen < 0.17: # 5% lake
                 (d, lakeInfo) = pr.drawLake(draw, tracedLine, i, x, y, 20, 150, 6)
                 if lakeInfo != -1:
                     subReceipt.append(("L", lakeInfo))
@@ -357,7 +357,7 @@ if useVid:
         raise IOError("Cannot open webcam")
     
     vid.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
-    vid.set(cv.CAP_PROP_EXPOSURE, -7)
+    vid.set(cv.CAP_PROP_EXPOSURE, -8)
 else:
     # Gets the image file
     parser = argparse.ArgumentParser(description='Code for Finding contours in your image tutorial.')
@@ -397,17 +397,29 @@ while True:
             print("Failed to grab frame")
             break
         
-        frame = cv.resize(frame[cropYmin:cropYmin+cropH, cropXmin:cropXmin+cropW], (cropW, cropH))
-        frame = cv.flip(frame, -1)
+        fullHeight, fullWidth = frame.shape[:2]
+        yMin = fullHeight - cropYmin
+
+        #gets the proper crop and rotation
+        frame = cv.resize(frame[cropXmin:cropXmin+cropW, yMin:yMin+cropH], (cropH, cropW))
+        frame = cv.rotate(frame, cv.ROTATE_90_CLOCKWISE)
+
     elif not useVid:
         frame = src
         
     #generates the frame that will be interpreted by the collaborator
     processed_frame = preprocess_image(frame, thresh)
 
+    #scales preview to desired window size
+    windowWidth = 1000
+    croppedHeight, croppedWidth = frame.shape[:2]
+    scale = windowWidth / croppedWidth
+    new_w = windowWidth
+    new_h = int(croppedHeight * scale)
+    display_frame = cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
 
     #shows live image
-    cv.imshow('Positioning', frame)
+    cv.imshow('Positioning', display_frame)
 
     #shows the frame as it will be interpreted by the collaborator
     cv.imshow('Contours and Correction', np.where(processed_frame == 0, 255, 0).astype(np.uint8))
