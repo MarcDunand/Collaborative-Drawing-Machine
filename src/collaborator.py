@@ -13,8 +13,13 @@ import threading
 import time
 from PIL import Image, ImageDraw
 import traceback
+import serial
 
 
+
+#Arduino Values
+arduino_port = 'COM8'  #change to match usb port
+baud = 9600
 
 # Define the initial variables
 xDef = 4656  #resolution of the camera
@@ -30,7 +35,7 @@ cropH = 965
 
 S = 454
 xc = 118
-yc = 115
+yc = 100
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
@@ -347,6 +352,12 @@ cv.createTrackbar('Height', 'Positioning', cropH, yDef, on_cropH)
 
 
 
+#Connect to arduino
+ser = serial.Serial(arduino_port, baud)
+time.sleep(2)
+print("Connected to Arduino!")
+
+
 if useVid:
     # Define a video capture object
     vid = cv.VideoCapture(0, cv.CAP_DSHOW)
@@ -357,7 +368,7 @@ if useVid:
         raise IOError("Cannot open webcam")
     
     vid.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
-    vid.set(cv.CAP_PROP_EXPOSURE, -9)
+    vid.set(cv.CAP_PROP_EXPOSURE, -8)
 else:
     # Gets the image file
     parser = argparse.ArgumentParser(description='Code for Finding contours in your image tutorial.')
@@ -423,6 +434,15 @@ while True:
 
     #shows the frame as it will be interpreted by the collaborator
     cv.imshow('Contours and Correction', np.where(processed_frame == 0, 255, 0).astype(np.uint8))
+
+
+
+    #Arduino test
+    if ser.in_waiting > 0:
+        line = ser.readline().decode('utf-8').strip()
+        print(f"Arduino says: {line}")
+    
+
 
 
     # Key commands
