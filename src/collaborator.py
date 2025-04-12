@@ -35,7 +35,7 @@ cropH = 965
 
 S = 454
 xc = 118
-yc = 100
+yc = 115
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
@@ -438,9 +438,9 @@ while True:
 
 
     #Arduino test
-    if ser.in_waiting > 0:
-        line = ser.readline().decode('utf-8').strip()
-        print(f"Arduino says: {line}")
+    line = ser.readline().decode('utf-8').strip()
+    if line == "Button Pressed!":
+        print("pressed!")
     
 
 
