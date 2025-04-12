@@ -30,7 +30,7 @@ cropH = 965
 
 S = 454
 xc = 118
-yc = 100
+yc = 115
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
@@ -39,9 +39,7 @@ useAxi = True  # For bugfixing while away from axidraw, program only works corre
 
 
 
-# Trackbars update live
-def on_thresh(val):
-    global thresh
+# Trackbars update live6 
     thresh = val
 
 def on_xMin(val):
@@ -357,7 +355,7 @@ if useVid:
         raise IOError("Cannot open webcam")
     
     vid.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
-    vid.set(cv.CAP_PROP_EXPOSURE, -8)
+    vid.set(cv.CAP_PROP_EXPOSURE, -9)
 else:
     # Gets the image file
     parser = argparse.ArgumentParser(description='Code for Finding contours in your image tutorial.')
