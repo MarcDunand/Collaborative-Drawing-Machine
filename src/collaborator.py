@@ -17,6 +17,14 @@ import serial
 
 
 
+
+#Defines whether the physical button is pressed or not
+class ButtonState:
+    def __init__(self):
+        self.pressed = False
+
+
+
 #Arduino Values
 arduino_port = 'COM8'  #change to match usb port
 baud = 9600
@@ -81,6 +89,17 @@ def on_Strackbar(val):
 
 
 
+
+
+
+#Get input from "go" button
+def listen_to_arduino(buttonState):
+    while True:
+        line = ser.readline().decode('utf-8').strip()
+        if line == "Button Pressed!":
+            buttonState.pressed = True
+        else:
+            buttonState.pressed = False
 
 
 
@@ -355,9 +374,13 @@ cv.createTrackbar('Height', 'Positioning', cropH, yDef, on_cropH)
 #Connect to arduino
 ser = serial.Serial(arduino_port, baud)
 time.sleep(2)
+buttonState = ButtonState()  #access to whether the physical button has been pressed
+threading.Thread(target=listen_to_arduino, args=(buttonState,), daemon=True).start()
 print("Connected to Arduino!")
 
 
+
+#Sets up image source
 if useVid:
     # Define a video capture object
     vid = cv.VideoCapture(0, cv.CAP_DSHOW)
@@ -381,6 +404,7 @@ else:
         exit(0)
 
 
+
 # Setup axidraw
 if useAxi:
     axi = axidraw.AxiDraw()          # Initialize class
@@ -393,11 +417,13 @@ if useAxi:
 
 
 
-#execution loop
-
+#Times the framerate
 last_capture_time = 0
 capture_interval = 1
 
+
+
+#execution loop
 while True:
     # Get the frame that will be used to create the collaboration
     if useVid and time.time() - last_capture_time > capture_interval:
@@ -435,19 +461,9 @@ while True:
     #shows the frame as it will be interpreted by the collaborator
     cv.imshow('Contours and Correction', np.where(processed_frame == 0, 255, 0).astype(np.uint8))
 
-
-
-    #Arduino test
-    line = ser.readline().decode('utf-8').strip()
-    if line == "Button Pressed!":
-        print("pressed!")
-    
-
-
-
     # Key commands
     k = cv.waitKey(1) & 0xFF
-    if k == 32:  #spacebar
+    if k == 32 or buttonState.pressed:  #spacebar
         beginCollaboration(processed_frame)
     elif k == 27:  #esc
         stopCollaboration()
