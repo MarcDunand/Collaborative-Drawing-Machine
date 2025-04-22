@@ -6,7 +6,6 @@ from scipy.ndimage import convolve
 import argparse
 import imageConverter as imgc
 from imageConverter import Island
-import axiDoodles as do
 import previewDoodles as pr
 import featurePlotting as plot
 import threading
@@ -26,24 +25,41 @@ class ButtonState:
 
 
 #Arduino Values
+ser = None  #arduino object
 arduino_port = 'COM8'  #change to match usb port
 baud = 9600
+stop_arduino_event = threading.Event()  #closes the arduino thread
 
-# Define the initial variables
-xDef = 4656  #resolution of the camera
+#Axidraw Values
+axi = None  #axi object
+collab_thread = None  #thread where almost all axi stuff happens
+stop_collab_event = threading.Event()  #closes the axi thread
+
+# Camera Values
+vid = None  #camera object
+thresh = 170  #higher means more land
+
+#resolution of the camera
+xDef = 4656
 yDef = 3496
-
-thresh = 157  #higher means more land
 
 #controls the size of the cropped in image
 cropXmin = 1055
 cropYmin = 1615
 cropW = 1354
-cropH = 965
+cropH = 950
 
-S = 454
-xc = 118
-yc = 115
+#controls the scaling and transforming of image to axi coords
+SInit = 454
+xcInit = 127
+ycInit = 129
+S = 0
+xc = 0
+yc = 0
+
+maxFeatureCount = 130  #max number of 
+
+
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
@@ -93,8 +109,8 @@ def on_Strackbar(val):
 
 
 #Get input from "go" button
-def listen_to_arduino(buttonState):
-    while True:
+def listen_to_arduino(buttonState, ser):
+    while not stop_arduino_event.is_set():
         line = ser.readline().decode('utf-8').strip()
         if line == "Button Pressed!":
             buttonState.pressed = True
@@ -146,7 +162,7 @@ def plotReceipt(receipt):
     for subReceipt in receipt:
         for feature in subReceipt:
             #Can interrupt drawing by pressing esc
-            if not isRunning:
+            if not isRunning or stop_collab_event.is_set():
                 print("Drawing interrupted!")
                 axi.moveto(0, 0)
                 return
@@ -165,14 +181,14 @@ def plotReceipt(receipt):
                     plot.lake(axi, feature[1], S, xc, yc)
 
             except Exception as e:
-                print(f"Error during plotting: {e}")
+                print(f"Suberror during plotting: {e}")
                 traceback.print_exc()
                 axi.penup()
 
     axi.moveto(0, 0)
                 
 
-def previewSurface(draw, tracedLine, overhang):
+def previewSurface(draw, tracedLine, overhang, featureCount, r):
     global isDrawing
     isDrawing = True
 
@@ -187,52 +203,58 @@ def previewSurface(draw, tracedLine, overhang):
             h = y - hy  #height on this column of pixels
 
             #attempts to generate altitude striations
-            if rand.random() < 0.1:
+            if rand.random() < 0.1*r:
                 striaInfo = pr.drawStriation(draw, tracedLine, i, x, y, 10, 80)
 
                 if striaInfo != -1:  #if a line has been drawn
                     subReceipt.append(("S", striaInfo))  #add info about the drawn striation to receipt
+                    featureCount += 1
 
             #generates single birds
-            if rand.random() < 0.01 and y > 2*birdScale:
+            if rand.random() < 0.007*r and y > 2*birdScale:
                 birdy = rand.uniform(10, (y-3*birdScale))
                 pr.drawBird(draw, x, birdy, birdScale, 60)
 
                 subReceipt.append(("B", [x, birdy, birdScale, 60]))  #add drawn bird to receipt
+                featureCount += 1
 
             #generate flocks    
-            if rand.random() < 0.003 and y > 2+3*birdScale:
-                stepSize = birdScale*10
+            if rand.random() < 0.002*r and y > 2+3*birdScale:
+                stepSize = birdScale*35
                 birdx = x
                 birdy = rand.uniform(10, (y-3*birdScale))
                 for i in range(rand.randrange(5, 30)):
-                    birdx += rand.uniform(-1*stepSize, stepSize)
+                    birdx += rand.uniform(-1*stepSize*S, stepSize*S)
                     birdy += rand.uniform(-1*stepSize*S, stepSize*S)
                     pr.drawBird(draw, birdx, birdy, birdScale, 60)
 
                     subReceipt.append(("B", [birdx, birdy, birdScale, 60]))  #add drawn bird to receipt
-
+                    featureCount += 0.3
 
             featureGen = rand.random()
-            if featureGen < 0.1:  # 10% tree
-                (d, treeInfo) = pr.drawTree(draw, i, x, y, min(60, h))
+            if featureGen < 0.04*r:  # 4% tree
+                (d, treeInfo) = pr.drawTree(draw, i, x, y, min(80, h))
                 subReceipt.append(("Tr", treeInfo))
+                featureCount += 1
 
-            elif featureGen < 0.115: # 1.5% tower
+            elif featureGen < 0.05*r: # 1% tower
                 (d, towerInfo)  = pr.drawTower(draw, tracedLine, overhang, i)
                 if towerInfo != -1:
                     subReceipt.append(("To", towerInfo))
+                    featureCount += 1
 
-            elif featureGen < 0.12: # 0.5% village
+            elif featureGen < 0.052*r: # 0.2% village
                 (d, villageInfo) = pr.drawVillage(draw, tracedLine, overhang, i)
                 subReceipt.extend(villageInfo)
+                featureCount += len(villageInfo) #add number equal to number of houses in village
 
-            elif featureGen < 0.17: # 5% lake
+            elif featureGen < 0.11*r: # ~6% lake
                 (d, lakeInfo) = pr.drawLake(draw, tracedLine, i, x, y, 20, 150, 6)
                 if lakeInfo != -1:
                     subReceipt.append(("L", lakeInfo))
+                    featureCount += 3
 
-    return subReceipt
+    return (subReceipt, featureCount)
 
 
 
@@ -269,7 +291,7 @@ def traceSurfaces(islandList):
 
             for i in range(0, len(surface)):
                 if not isRunning:
-                    print("Drawing interrupted!")
+                    print("Test drawing interrupted!")
                     axi.moveto(0, 0)
                     return
                 
@@ -281,6 +303,22 @@ def traceSurfaces(islandList):
             axi.penup()
 
     axi.moveto(0, 0)
+
+
+
+def previewAllFeatures(draw, islandList, r):
+    #create preview image file and calculate features to be drawn
+    receipt = []
+    featureCount = 0
+    #receipt.append(previewSky(draw, surfaceList))  #TODO impliment
+    for island in islandList:
+        for i in range(len(island.surfaces)):
+            surface = island.surfaces[i]
+            overhang = island.overhangs[i]
+            (subReceipt, featureCount) = previewSurface(draw, surface, overhang, featureCount, r)
+            receipt.append(subReceipt)
+
+    return (receipt, featureCount)
 
 
 # Begins the collaboration, gets island information from the raw image
@@ -298,28 +336,28 @@ def runCollaboration(frame):
     preview = Image.fromarray(greyscaleConvert).convert("L")
     draw = ImageDraw.Draw(preview)
 
-    #create preview image file and calculate features to be drawn
-    receipt = []
-    #receipt.append(previewSky(draw, surfaceList))  #TODO impliment
-    for island in islandList:
-        for i in range(len(island.surfaces)):
-            surface = island.surfaces[i]
-            overhang = island.overhangs[i]
-            receipt.append(previewSurface(draw, surface, overhang))
-    
+    (receipt, featureCount) = previewAllFeatures(draw, islandList, 1)
+    print(featureCount)
     preview.save("./sampleImages_output/collaboration_preview.jpg")
+
+    #if the drawing will take too long regenerate more sparsely
+    if featureCount > maxFeatureCount:
+        print("regenerating as drawing is too time-consuming")
+
+        preview2 = Image.fromarray(greyscaleConvert).convert("L")
+        draw2 = ImageDraw.Draw(preview2)
+
+        r = (maxFeatureCount/featureCount)*0.7
+        (receipt, featureCount) = previewAllFeatures(draw2, islandList, r)
+        preview2.save("./sampleImages_output/collaboration_preview_sparsed.jpg")
+        print(featureCount)
+
 
     #Draw features with axi
     if useAxi:
         #traceSurfaces(islandList)  # Test attempting to trace the location of all island surfaces
-        try:
-            plotReceipt(receipt)
-        except Exception as e:
-            print(f"Error during plotting: {e}")
-            traceback.print_exc()
-            axi.goto(0, 0)
-        else:
-            print("Plotting succesful!")
+        plotReceipt(receipt)
+        print("Plotting succesful!")
         
     isRunning = False
 
@@ -330,149 +368,269 @@ def runCollaboration(frame):
 # Opens thread for the collaboration
 def beginCollaboration(frame):
     #Signals that the collaboration is in progress
-    global isRunning
+    global isRunning, collab_thread
     print(isRunning)
     if not isRunning:
         isRunning = True
-        threading.Thread(target=runCollaboration, args=(frame,), daemon=True).start()
+        collab_thread = threading.Thread(target=runCollaboration, args=(frame,), daemon=True)
+        collab_thread.start()
     
 
 # Closes the thread for the collaboration
 def stopCollaboration():
     global isRunning
     isRunning = False
+    time.sleep(10)  #Allows time for the axidraw to home
+
+    for _ in range(10):  #Removes keypresses stored if anything was spammed while the program was sleeping
+        cv.waitKey(1)
 
 
 
 
-# Initialize windows to display the results
-cv.namedWindow('Contours and Correction', cv.WINDOW_AUTOSIZE)
-cv.resizeWindow('Contours and Correction', 1920, 1080)
-cv.createTrackbar('Threshold', 'Contours and Correction', thresh, 500, on_thresh)
-cv.createTrackbar('xc', 'Contours and Correction', xc, 4000, on_xstrackbar)
-cv.createTrackbar('yc', 'Contours and Correction', yc, 2000, on_ystrackbar)
-cv.createTrackbar('S', 'Contours and Correction', S, 1000, on_Strackbar)
-
-cv.namedWindow('Positioning',  cv.WINDOW_AUTOSIZE)
-cv.resizeWindow('Positioning', 1920, 1080)
-cv.createTrackbar('MinX', 'Positioning', cropXmin, xDef, on_xMin)
-cv.createTrackbar('MinY', 'Positioning', cropYmin, yDef, on_yMin)
-cv.createTrackbar('Width', 'Positioning', cropW, xDef, on_cropW)
-cv.createTrackbar('Height', 'Positioning', cropH, yDef, on_cropH)
-
-
-# CAMERA CALLIBRATION CODE
-# with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
-#     cameraMatrix = data['cameraMatrix']
-#     distCoeffs = data['distCoeffs']
-
-# print(cameraMatrix)
-# print(distCoeffs)
-
-
-
-#Connect to arduino
-ser = serial.Serial(arduino_port, baud)
-time.sleep(2)
-buttonState = ButtonState()  #access to whether the physical button has been pressed
-threading.Thread(target=listen_to_arduino, args=(buttonState,), daemon=True).start()
-print("Connected to Arduino!")
-
-
-
-#Sets up image source
-if useVid:
-    # Define a video capture object
-    vid = cv.VideoCapture(0, cv.CAP_DSHOW)
-    vid.set(cv.CAP_PROP_FRAME_WIDTH, xDef)
-    vid.set(cv.CAP_PROP_FRAME_HEIGHT, yDef)
-    
-    if not vid.isOpened():
-        raise IOError("Cannot open webcam")
-    
-    vid.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
-    vid.set(cv.CAP_PROP_EXPOSURE, -8)
-else:
-    # Gets the image file
-    parser = argparse.ArgumentParser(description='Code for Finding contours in your image tutorial.')
-    parser.add_argument('--input', help='', default='./sampleImages/bwWiggles.jpg')
-    args = parser.parse_args()
-    
-    src = cv.imread(cv.samples.findFile(args.input))
-    if src is None:
-        print('Could not open or find the image:', args.input)
-        exit(0)
-
-
-
-# Setup axidraw
-if useAxi:
+# Connects to the physical axidraw
+def connectToAxi():
     axi = axidraw.AxiDraw()          # Initialize class
     axi.interactive()                # Enter interactive context
     if not axi.connect():            # Open serial port to AxiDraw;
-        print("not connected")
+        print("not connected to axi")
         quit()
-    print("connected!")
+    print("Connected to Axidraw!")
     axi.options.units = 2
+    return axi
 
 
 
-#Times the framerate
-last_capture_time = 0
-capture_interval = 1
+
+
+#Intializes everything and main execution loop
+def main():    
+    # Initialize windows to display the results
+    cv.namedWindow('Contours and Correction', cv.WINDOW_AUTOSIZE)
+    cv.resizeWindow('Contours and Correction', 1920, 1080)
+    cv.createTrackbar('Threshold', 'Contours and Correction', thresh, 500, on_thresh)
+    cv.createTrackbar('xc', 'Contours and Correction', xcInit, 4000, on_xstrackbar)
+    cv.createTrackbar('yc', 'Contours and Correction', ycInit, 2000, on_ystrackbar)
+    cv.createTrackbar('S', 'Contours and Correction', SInit, 1000, on_Strackbar)
+
+    cv.namedWindow('Positioning',  cv.WINDOW_AUTOSIZE)
+    cv.resizeWindow('Positioning', 1920, 1080)
+    cv.createTrackbar('MinX', 'Positioning', cropXmin, xDef, on_xMin)
+    cv.createTrackbar('MinY', 'Positioning', cropYmin, yDef, on_yMin)
+    cv.createTrackbar('Width', 'Positioning', cropW, xDef, on_cropW)
+    cv.createTrackbar('Height', 'Positioning', cropH, yDef, on_cropH)
+
+
+    # CAMERA CALLIBRATION CODE
+    # with np.load('calibration_data.npz') as data:  #the camera correction as calculated with openCV in cameraCallibration.py
+    #     cameraMatrix = data['cameraMatrix']
+    #     distCoeffs = data['distCoeffs']
+
+    # print(cameraMatrix)
+    # print(distCoeffs)
 
 
 
-#execution loop
-while True:
-    # Get the frame that will be used to create the collaboration
-    if useVid and time.time() - last_capture_time > capture_interval:
-        last_capture_time = time.time()
+    #Connect to arduino
+    global ser
+    ser = serial.Serial(arduino_port, baud)
+    time.sleep(2)
+    buttonState = ButtonState()  #access to whether the physical button has been pressed
+    threading.Thread(target=listen_to_arduino, args=(buttonState,ser,), daemon=True).start()
+    print("Connected to Arduino!")
 
-        ret, frame = vid.read()
-        if not ret:
-            print("Failed to grab frame")
+
+
+    #Sets up image source
+    if useVid:
+        # Define a video capture object
+        global vid
+        vid = cv.VideoCapture(0, cv.CAP_DSHOW)
+        vid.set(cv.CAP_PROP_FRAME_WIDTH, xDef)
+        vid.set(cv.CAP_PROP_FRAME_HEIGHT, yDef)
+        
+        if not vid.isOpened():
+            raise IOError("Cannot open webcam")
+        
+        vid.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
+        vid.set(cv.CAP_PROP_EXPOSURE, -7)
+
+    else:
+        # Gets the image file
+        parser = argparse.ArgumentParser(description='Code for Finding contours in your image tutorial.')
+        parser.add_argument('--input', help='', default='./sampleImages/bwWiggles.jpg')
+        args = parser.parse_args()
+        
+        src = cv.imread(cv.samples.findFile(args.input))
+        if src is None:
+            print('Could not open or find the image:', args.input)
+            exit(0)
+
+
+
+    #initializes connection to axidraw
+    if useAxi:
+        global axi
+        axi = connectToAxi()
+        axi.goto(0, 0)
+
+    #Times the framerate
+    last_capture_time = 0
+    capture_interval = 1
+
+
+
+    #execution loop
+    while True:
+        # Get the frame that will be used to create the collaboration
+        if useVid and time.time() - last_capture_time > capture_interval:
+            last_capture_time = time.time()
+
+            ret, frame = vid.read()
+            if not ret:
+                print("Failed to grab frame")
+                break
+            
+            fullHeight, fullWidth = frame.shape[:2]
+            yMin = fullHeight - cropYmin
+
+            #gets the proper crop and rotation
+            frame = cv.resize(frame[cropXmin:cropXmin+cropW, yMin:yMin+cropH], (cropH, cropW))
+            frame = cv.rotate(frame, cv.ROTATE_90_CLOCKWISE)
+
+        elif not useVid:
+            frame = src
+            
+        #generates the frame that will be interpreted by the collaborator
+        processed_frame = preprocess_image(frame, thresh)
+
+        #scales preview to desired window size
+        windowWidth = 1000
+        croppedHeight, croppedWidth = frame.shape[:2]
+        scale = windowWidth / croppedWidth
+        new_w = windowWidth
+        new_h = int(croppedHeight * scale)
+        display_frame = cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
+        processed_display_frame = cv.resize(processed_frame, (new_w, new_h), interpolation=cv.INTER_AREA)
+
+        #shows live image
+        cv.imshow('Positioning', display_frame)
+
+        #shows the frame as it will be interpreted by the collaborator
+        cv.imshow('Contours and Correction', np.where(processed_display_frame == 0, 255, 0).astype(np.uint8))
+
+        # Key commands
+        k = cv.waitKey(1) & 0xFF
+        if k == 32 or buttonState.pressed:  #spacebar
+            beginCollaboration(processed_frame)
+        elif k == 27:  #esc
+            stopCollaboration()
+        elif k == 113:  #q
+            print("Quitting...")
             break
-        
-        fullHeight, fullWidth = frame.shape[:2]
-        yMin = fullHeight - cropYmin
-
-        #gets the proper crop and rotation
-        frame = cv.resize(frame[cropXmin:cropXmin+cropW, yMin:yMin+cropH], (cropH, cropW))
-        frame = cv.rotate(frame, cv.ROTATE_90_CLOCKWISE)
-
-    elif not useVid:
-        frame = src
-        
-    #generates the frame that will be interpreted by the collaborator
-    processed_frame = preprocess_image(frame, thresh)
-
-    #scales preview to desired window size
-    windowWidth = 1000
-    croppedHeight, croppedWidth = frame.shape[:2]
-    scale = windowWidth / croppedWidth
-    new_w = windowWidth
-    new_h = int(croppedHeight * scale)
-    display_frame = cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
-
-    #shows live image
-    cv.imshow('Positioning', display_frame)
-
-    #shows the frame as it will be interpreted by the collaborator
-    cv.imshow('Contours and Correction', np.where(processed_frame == 0, 255, 0).astype(np.uint8))
-
-    # Key commands
-    k = cv.waitKey(1) & 0xFF
-    if k == 32 or buttonState.pressed:  #spacebar
-        beginCollaboration(processed_frame)
-    elif k == 27:  #esc
-        stopCollaboration()
-    elif k == 113:  #q
-        break
+        elif k == 101: #e
+            print("test crashing!")
+            fakecall()
 
 
 
-# Release the VideoCapture object and close display windows
-if useVid:
-    vid.release()
-cv.destroyAllWindows()
+    # Release the VideoCapture object and close display windows
+    if useVid:
+        vid.release()
+
+    # Safely shut down axi
+    if axi:
+        try:
+            axi.disconnect()
+        except Exception:
+            pass
+    
+    # Safely shut down arduino
+    try:
+        stop_arduino_event.set()
+        time.sleep(0.1)
+        ser.close()
+    except Exception:
+        pass
+
+
+    global isDrawing, isRunning
+    isDrawing = False
+    isRunning = False
+
+
+    cv.destroyAllWindows()
+    return -1
+
+
+
+#Fully resets the program for a fresh run
+def reset_state():
+    global isDrawing, isRunning, collab_thread
+
+    # Signal threads to stop
+    stop_collab_event.set()
+    stop_arduino_event.set()
+    isRunning = False
+    isDrawing = False
+
+    time.sleep(0.1)  # give a short moment to begin stopping
+
+
+    # Wait for collaboration thread to end
+    if 'collab_thread' in globals() and collab_thread.is_alive():
+        print("Waiting for collaboration thread to exit...")
+        collab_thread.join(timeout=10)
+    
+    if 'collab_thread' in globals() and collab_thread.is_alive():
+        print("Collaboration thread failed to terminate.")
+    else:
+        print("Collaboration thread succesfully terminated.")
+
+    collab_thread = None  # Clean up the thread reference
+
+
+    # Now it's safe to disconnect hardware
+    if useVid and vid:
+        vid.release()
+
+    try:
+        if axi:
+            axi.goto(0, 0)
+            axi.disconnect()
+    except Exception as e:
+        print(f"Failed to home axidraw: {e}")
+
+    try:
+        if ser:
+            ser.close()
+    except Exception:
+        pass
+
+
+    # Destroy windows and clear flags
+    cv.destroyAllWindows()
+    stop_collab_event.clear()
+    stop_arduino_event.clear()
+
+
+
+
+
+#Run!
+run = True  #Determines if it should allow the program to fully exit
+while run:
+    try:
+        retVal = main()
+        if retVal == -1:
+            run = False
+
+    except Exception as e:
+        print(f"High-level error in main(): {e}")
+        traceback.print_exc()
+
+        reset_state()  #Removes and resets everything for a fresh run
+
+        print("Restarting in 10 seconds...")
+        time.sleep(10)
+        print("Restarting!")

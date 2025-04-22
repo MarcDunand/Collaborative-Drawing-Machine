@@ -24,11 +24,12 @@ def drawBird(draw, x, y, birdScale, bend):
 
 
 def drawTree(draw, i, x, y, maxh):
-    h = rand.uniform(3, maxh*0.7)  #height of trunk
+    h = rand.uniform(4, maxh*0.6)  #height of trunk
     trunk = [x, y, x, y-h]
     draw.line(trunk, fill=0)
 
-    r = rand.uniform(h*0.15, h*0.3)  #radius of crown
+    r = rand.uniform(h*0.15, h*0.4)  #radius of crown
+    r = max(3, r)
     draw.ellipse([x-r, (y-h)-r, x+r, (y-h)+r], outline=0)
 
     return (i+int(r)+1, [trunk, r])  #return new d val and all info about tree
@@ -49,6 +50,8 @@ def drawTree(draw, i, x, y, maxh):
 
 
 def drawStriation(draw, tracedLine, i, x, y, minStria, maxStria):
+    xBuffer = 2  #how far to bring in the ends of the striation to make space for potential errors
+    
     isStria = True
     for c in range(minStria):
         if i+c >= len(tracedLine):
@@ -69,7 +72,7 @@ def drawStriation(draw, tracedLine, i, x, y, minStria, maxStria):
                 break
     
     if rX != -1:
-        endpoints = [x, y, tracedLine[rX][1], y]
+        endpoints = [x + xBuffer, y, tracedLine[rX][1] - xBuffer, y]
         draw.line(endpoints, fill=0)
         return endpoints  #returns the drawn line
     
@@ -146,6 +149,8 @@ def generateAllFish(draw, allDepths, fishProb, fishSize, fishDir, startX, startY
 
 
 def drawLakeFeatures(draw, lineArr, startIdx, x, y, waveLen, endIdx):
+    boatChance = 0.7  #chance of drawing a boat
+
     lakeW = (endIdx - startIdx)
     waveNum = int(lakeW/waveLen)
     leftOver = lakeW%waveLen
@@ -156,14 +161,14 @@ def drawLakeFeatures(draw, lineArr, startIdx, x, y, waveLen, endIdx):
 
     draw.line([x, y, x+waveD, y])  #maybe remove?
 
-    boatloc = int(rand.randrange(0, int((waveNum-2)*2)))
+    boatloc = int(rand.randrange(0, (waveNum-2)))
     boatInfo = -1  #retains this value if no boat is drawn
     for i in range(waveNum-2):
         #draw a wave
         xminBound = x+waveD*(i+1)
         draw.arc([xminBound, y-waveD/2, xminBound+waveD, y+waveD/2], 0, 180, fill = 0)
                 
-        if i == boatloc:  #generate boats
+        if i == boatloc and rand.random() < boatChance:  #generate boats
             boatScale = (3*waveLen + waveNum/4)/2  #half the total length of the hull of the boat
             boatX = x+waveD*i+waveD*1.5
             boatY = y - boatScale/4
@@ -227,7 +232,7 @@ def drawLake(draw, tracedLine, i, x, y, minLake, maxLake, waveLen):
     if endIdx != 0 and maxDetectedDepth >= minDepth:  #create a lake if in bounds and deep enough
         lakeInfo = drawLakeFeatures(draw, tracedLine, i, x, y, waveLen, endIdx)
 
-        lakeInfo.append(generateAllFish(draw, allDepths, 0.01, 10, rand.choice([-1, 1]), x, y))
+        lakeInfo.append(generateAllFish(draw, allDepths, 0.03, 10, rand.choice([-1, 1]), x, y))
 
         return (endIdx, lakeInfo)
 
@@ -339,7 +344,7 @@ def drawVillage(draw, tracedLine, overhang, i):
             draw.polygon(roof)
 
             villageReceipt.append(("To", [leftWall, rightWall, roof]))
-            c+=rand.randint(2, 5)  #start position of next house
+            c+= w + rand.randint(int((-w)/3), 1)  #start position of next house
         
         d = i+c+1
         return (d, villageReceipt)

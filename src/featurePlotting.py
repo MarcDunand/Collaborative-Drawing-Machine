@@ -18,7 +18,8 @@ def rect(axi, x1, y1, x2, y2):
 
 def circle(axi, x, y, r):
     axi.moveto(x, y+r)
-    steps = 16
+    steps = int((1 + min(1, (r-0.681)/2))*8)
+    print(r, steps)
     for i in range(steps + 1):
         theta = (i*2*math.pi)/steps
         axi.lineto(x + r*math.sin(theta), y + r*math.cos(theta))
@@ -43,8 +44,10 @@ def arc(axi, x, y, rx, ry, thetaS, thetaE, raisePen):
         return
     
     axi.goto(x + rx*math.sin(thetaS), y + ry*math.cos(thetaS))
+
     dTheta = thetaE-thetaS
-    steps = int((dTheta/(2*math.pi))*50)
+    fulCircleSteps = int((1 + min(1, (((rx+ry)/2)-0.681)/2))*16)  #How many steps would be used if this arc was 360 deg
+    steps = int((dTheta/(2*math.pi))*fulCircleSteps)
     for i in range(steps + 1):
         theta = thetaS + (i*dTheta)/steps
         axi.lineto(x + rx*math.sin(theta), y + ry*math.cos(theta))
