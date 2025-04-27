@@ -44,20 +44,20 @@ xDef = 4656
 yDef = 3496
 
 #controls the size of the cropped in image
-cropXmin = 1055
-cropYmin = 1615
-cropW = 1354
-cropH = 950
+cropXmin = 1043
+cropYmin = 1830
+cropW = 1442
+cropH = 1059
 
 #controls the scaling and transforming of image to axi coords
 SInit = 454
-xcInit = 127
-ycInit = 129
+xcInit = 129
+ycInit = 140
 S = 0
 xc = 0
 yc = 0
 
-maxFeatureCount = 130  #max number of 
+maxFeatureCount = 130  #max number of features axi can plot
 
 
 isDrawing = False  #True when the Axidraw is running
@@ -155,6 +155,75 @@ def preprocess_image(frame, thresh):
     
     return morpho_img
 
+
+def findRed(frame):
+    frame = cv.GaussianBlur(frame, (5,5), 0)  #blur
+    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)  #convert to hsv
+
+    # Create red mask
+    # Lower range for darker red
+    lower_red1 = np.array([0, 70, 20])   # (Hue around 0, Saturation higher, Value lower)
+    upper_red1 = np.array([10, 255, 255])
+
+    # Upper range for darker red
+    lower_red2 = np.array([170, 70, 20])
+    upper_red2 = np.array([180, 255, 255])
+
+    # Combine masks
+    mask1 = cv.inRange(hsv, lower_red1, upper_red1)
+    mask2 = cv.inRange(hsv, lower_red2, upper_red2)
+    red_mask = cv.bitwise_or(mask1, mask2)
+
+
+    #clean up small noise with morpho operation
+    #MAY WANT TO DELETE AS REMOVES DETAIL FROM CONTOUR
+    # kernel = np.ones((5,5), np.uint8)
+    # red_mask = cv.morphologyEx(red_mask, cv.MORPH_CLOSE, kernel)
+
+
+    # contours, _ = cv.findContours(red_mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+
+    # # Create an empty black mask the same size as the frame
+    # mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+
+    # # Draw only contours with area > 100
+    # for contour in contours:
+    #     if cv.contourArea(contour) > 1000:
+    #         cv.drawContours(mask, [contour], -1, color=255, thickness=cv.FILLED)
+
+    return red_mask
+
+
+def findAnchor(frame):
+    
+    ys, xs = np.nonzero(frame)
+    points = np.stack((xs, ys), axis=-1).astype(np.float32)
+
+    if len(points) == 0:
+        return (0, 0)
+
+    mean, eigenvectors = cv.PCACompute(points, mean=np.array([]))
+    frameAnchor = tuple(mean[0])
+    return frameAnchor
+
+
+
+
+
+def correctCoords(x, y):
+    #right-shift bottom right hand corner
+    if y > -0.38*x + 1190:
+        print("In bottom right!")
+        regionDepth = y - (-0.38*x + 1190) #how far into the region are we (and therefore how strong is the warp)
+        x += regionDepth/60
+    
+    elif y > 0.38*x + 825:
+        print("In bottom left!")
+        regionDepth = y - (0.38*x + 825)
+        x -= regionDepth/80
+
+    return (x, y)
 
 def plotReceipt(receipt):
     global isRunning
@@ -289,13 +358,14 @@ def traceSurfaces(islandList):
             axi.moveto(startX*S+xc, startY*S+yc)
             axi.pendown()
 
-            for i in range(0, len(surface)):
+            for i in range(0, len(surface), 2):
                 if not isRunning:
                     print("Test drawing interrupted!")
                     axi.moveto(0, 0)
                     return
-                
+
                 [y, x] = surface[i]
+                (x, y) = correctCoords(x, y)
                 axi.lineto(x*S+xc, y*S+yc)
                 print(x, y)
 
@@ -355,8 +425,8 @@ def runCollaboration(frame):
 
     #Draw features with axi
     if useAxi:
-        #traceSurfaces(islandList)  # Test attempting to trace the location of all island surfaces
-        plotReceipt(receipt)
+        traceSurfaces(islandList)  # Test attempting to trace the location of all island surfaces
+        #plotReceipt(receipt)
         print("Plotting succesful!")
         
     isRunning = False
@@ -397,6 +467,9 @@ def connectToAxi():
         quit()
     print("Connected to Axidraw!")
     axi.options.units = 2
+    axi.options.pen_pos_up = 50
+    axi.options.pen_pos_down = 30
+    axi.update()
     return axi
 
 
@@ -486,17 +559,26 @@ def main():
         if useVid and time.time() - last_capture_time > capture_interval:
             last_capture_time = time.time()
 
-            ret, frame = vid.read()
+            ret, fullFrame = vid.read()
             if not ret:
                 print("Failed to grab frame")
                 break
             
-            fullHeight, fullWidth = frame.shape[:2]
-            yMin = fullHeight - cropYmin
+            fullHeight, fullWidth = fullFrame.shape[:2]
+            #yMin = fullHeight - cropYmin
 
             #gets the proper crop and rotation
-            frame = cv.resize(frame[cropXmin:cropXmin+cropW, yMin:yMin+cropH], (cropH, cropW))
-            frame = cv.rotate(frame, cv.ROTATE_90_CLOCKWISE)
+            frame = cv.rotate(fullFrame, cv.ROTATE_90_CLOCKWISE)
+            frame = cv.resize(frame[cropYmin:cropYmin+cropH, cropXmin:cropXmin+cropW], (cropW, cropH))
+
+            redFrame = cv.rotate(fullFrame, cv.ROTATE_90_CLOCKWISE)
+            redFrame = cv.resize(redFrame[cropYmin-50:cropYmin+cropH+50, cropXmin-50:cropXmin+cropW+50], (cropW+100, cropH+100))
+
+            redFrame = findRed(redFrame)
+
+            frameAnchor = findAnchor(redFrame)
+            print(frameAnchor)
+
 
         elif not useVid:
             frame = src
@@ -511,10 +593,14 @@ def main():
         new_w = windowWidth
         new_h = int(croppedHeight * scale)
         display_frame = cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
+        display_big_frame = cv.resize(redFrame, (new_w, new_h), interpolation=cv.INTER_AREA)
         processed_display_frame = cv.resize(processed_frame, (new_w, new_h), interpolation=cv.INTER_AREA)
 
         #shows live image
         cv.imshow('Positioning', display_frame)
+
+        #shows live zoomed out image
+        cv.imshow('Zoomout', display_big_frame)
 
         #shows the frame as it will be interpreted by the collaborator
         cv.imshow('Contours and Correction', np.where(processed_display_frame == 0, 255, 0).astype(np.uint8))
