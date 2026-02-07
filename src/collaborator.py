@@ -63,7 +63,8 @@ maxFeatureCount = 130  #max number of features axi can plot
 isDrawing = False  #True when the Axidraw is running
 isRunning = False  #True when runCollaboration thread is running
 
-useVid = True  # Choose whether to use camera or internal file for capture
+useVid = False  # Choose whether to use camera or internal file for capture
+useButton = False # Choose whether to use the physical analogue button or the spacebar to commence a plot
 useAxi = True  # For bugfixing while away from axidraw, program only works correctly with val is True
 
 
@@ -104,18 +105,6 @@ def on_Strackbar(val):
     S = val/2000
 
 
-
-
-
-
-#Get input from "go" button
-def listen_to_arduino(buttonState, ser):
-    while not stop_arduino_event.is_set():
-        line = ser.readline().decode('utf-8').strip()
-        if line == "Button Pressed!":
-            buttonState.pressed = True
-        else:
-            buttonState.pressed = False
 
 
 
@@ -469,6 +458,8 @@ def connectToAxi():
     axi.options.units = 2
     axi.options.pen_pos_up = 50
     axi.options.pen_pos_down = 30
+    axi.options.speed_pendown = 100
+    axi.options.speed_penup = 100
     axi.update()
     return axi
 
@@ -505,12 +496,23 @@ def main():
 
 
     #Connect to arduino
-    global ser
-    ser = serial.Serial(arduino_port, baud)
-    time.sleep(2)
-    buttonState = ButtonState()  #access to whether the physical button has been pressed
-    threading.Thread(target=listen_to_arduino, args=(buttonState,ser,), daemon=True).start()
-    print("Connected to Arduino!")
+    if useButton:
+        global ser
+        ser = serial.Serial(arduino_port, baud)
+        time.sleep(2)
+        buttonState = ButtonState()  #access to whether the physical button has been pressed
+        threading.Thread(target=listen_to_arduino, args=(buttonState,ser,), daemon=True).start()
+        print("Connected to Arduino!")
+
+
+    #Get input from "go" button
+    def listen_to_arduino(buttonState, ser):
+        while not stop_arduino_event.is_set():
+            line = ser.readline().decode('utf-8').strip()
+            if line == "Button Pressed!":
+                buttonState.pressed = True
+            else:
+                buttonState.pressed = False
 
 
 
@@ -593,21 +595,24 @@ def main():
         new_w = windowWidth
         new_h = int(croppedHeight * scale)
         display_frame = cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
-        display_big_frame = cv.resize(redFrame, (new_w, new_h), interpolation=cv.INTER_AREA)
         processed_display_frame = cv.resize(processed_frame, (new_w, new_h), interpolation=cv.INTER_AREA)
 
         #shows live image
         cv.imshow('Positioning', display_frame)
 
         #shows live zoomed out image
-        cv.imshow('Zoomout', display_big_frame)
+        if useVid:
+            display_big_frame = cv.resize(redFrame, (new_w, new_h), interpolation=cv.INTER_AREA)
+            cv.imshow('Zoomout', display_big_frame)
 
         #shows the frame as it will be interpreted by the collaborator
         cv.imshow('Contours and Correction', np.where(processed_display_frame == 0, 255, 0).astype(np.uint8))
 
         # Key commands
         k = cv.waitKey(1) & 0xFF
-        if k == 32 or buttonState.pressed:  #spacebar
+        if useButton and buttonState.pressed: #analogue botton
+            beginCollaboration(processed_frame)
+        elif k == 32: #spacebar
             beginCollaboration(processed_frame)
         elif k == 27:  #esc
             stopCollaboration()
