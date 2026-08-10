@@ -603,7 +603,7 @@ print(distCoeffs)
 
 print("Awake!")
 
-useVid = True
+useVid = False
 
 # Define a video capture object
 if useVid:
